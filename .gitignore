@@ -1,0 +1,22 @@
+# dependencies
+frontend/node_modules/
+
+# build outputs
+frontend/dist/
+backend/target/
+
+# env & secrets — never commit
+.env
+.env.*
+*.pem
+*.key
+
+# H2 runtime data
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# logs & OS junk
+*.log
+.DS_Store
