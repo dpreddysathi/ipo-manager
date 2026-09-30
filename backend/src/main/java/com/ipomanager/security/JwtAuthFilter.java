@@ -38,6 +38,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        // Let CORS preflights through: browsers never send the
+        // Authorization header on an OPTIONS preflight, so authenticating
+        // it would 401 every preflight and the browser would block the
+        // real request. Spring MVC's CORS config answers the preflight;
+        // the follow-up request still goes through auth below.
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            chain.doFilter(request, response);
+            return;
+        }
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             final Long userId;
