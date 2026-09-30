@@ -63,6 +63,7 @@ a:hover {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
 }
 
 .brand {
@@ -835,6 +836,7 @@ select.status-select {
 /* ---------- Auth (login / register) ---------- */
 .auth-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -951,4 +953,273 @@ select.status-select {
 .sidebar-tag {
   font-size: 0.75rem;
   color: #6b76a8;
+}
+
+body {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---------- Mobile top bar + off-canvas sidebar ---------- */
+.topbar {
+  display: none;
+}
+.sidebar-scrim {
+  display: none;
+}
+
+/* ============================================================
+   RESPONSIVE — mobile & small tablets
+   ============================================================ */
+@media (max-width: 900px) {
+  /* Top bar with hamburger (sidebar becomes off-canvas below) */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+    color: #fff;
+    padding: 10px 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  }
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 1.05rem;
+    letter-spacing: 0.2px;
+  }
+  .topbar-brand .logo {
+    background: var(--indigo);
+    border-radius: 8px;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+  }
+  .menu-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    color: #fff;
+    font-size: 1.3rem;
+    line-height: 1;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .menu-btn:active {
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  /* Sidebar slides in over content */
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(280px, 84vw);
+    height: 100dvh;
+    z-index: 80;
+    transform: translateX(-105%);
+    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0.35, 1);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 75;
+    background: rgba(17, 24, 39, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .sidebar-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .main {
+    padding: 18px 16px 72px;
+    max-width: none;
+  }
+  .page-head h1 {
+    font-size: 1.35rem;
+  }
+
+  /* Tables scroll horizontally with momentum */
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Stop iOS auto-zoom on focus (needs >= 16px) */
+  .field input,
+  .field select,
+  .field textarea,
+  .refund-prompt input,
+  select.status-select {
+    font-size: 16px;
+  }
+
+  /* Comfortable touch targets */
+  .btn {
+    min-height: 44px;
+  }
+  .btn-sm {
+    min-height: 38px;
+    padding: 8px 14px;
+  }
+  .nav a {
+    padding: 13px 14px;
+    font-size: 1rem;
+  }
+
+  /* Tab + segmented filters scroll instead of squeezing */
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tabs button {
+    white-space: nowrap;
+  }
+  .seg {
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: none;
+  }
+  .seg::-webkit-scrollbar {
+    display: none;
+  }
+  .seg button {
+    white-space: nowrap;
+    flex: 1 0 auto;
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Two-column stat cards fit a phone nicely */
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .stat-card {
+    padding: 14px;
+  }
+  .stat-value {
+    font-size: 1.3rem;
+  }
+  .stat-label {
+    font-size: 0.68rem;
+  }
+  .stat-accent {
+    width: 26px;
+    margin-bottom: 8px;
+  }
+
+  .list-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .card {
+    padding: 16px;
+  }
+  .page-head {
+    margin-bottom: 14px;
+  }
+
+  /* Form rows stack */
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Drawer goes full-bleed on phones */
+  .drawer {
+    width: 100vw;
+  }
+  .drawer-head {
+    padding: 18px 18px 14px;
+  }
+  .drawer-body {
+    padding: 16px 18px 28px;
+  }
+  .verdict {
+    font-size: 1.15rem;
+  }
+
+  .auth-card {
+    padding: 26px 22px 24px;
+  }
+  .auth-page {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Modals become thumb-friendly bottom sheets */
+  .modal {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+    animation: sheetUp 0.24s cubic-bezier(0.32, 0.72, 0.35, 1);
+  }
+  @keyframes sheetUp {
+    from {
+      transform: translateY(60px);
+      opacity: 0.6;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  .modal-head {
+    padding: 16px 18px 0;
+  }
+  .modal-body {
+    padding: 14px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Stack Save/Cancel full-width, primary action on top */
+  .form-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .form-actions .btn {
+    width: 100%;
+  }
+  .drawer-actions {
+    flex-direction: column;
+  }
+  .radio-card {
+    padding: 12px;
+  }
+  .tbl {
+    font-size: 0.88rem;
+  }
+  .tbl th,
+  .tbl td {
+    padding: 9px 10px;
+  }
 }

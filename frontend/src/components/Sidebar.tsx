@@ -8,11 +8,17 @@ const LINKS = [
   { to: '/money-flow', label: 'Money Flow', icon: '💸' },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  open = false,
+  onNavigate,
+}: {
+  open?: boolean;
+  onNavigate?: () => void;
+}) {
   const { user, logout } = useAuth();
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="brand">
         <span className="logo">📈</span>
         IPO Manager
@@ -23,6 +29,7 @@ export function Sidebar() {
             key={l.to}
             to={l.to}
             end={l.end}
+            onClick={onNavigate}
             className={({ isActive }) => (isActive ? 'active' : '')}
           >
             <span>{l.icon}</span> {l.label}

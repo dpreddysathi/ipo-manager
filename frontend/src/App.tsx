@@ -1,4 +1,5 @@
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DrawerProvider } from './drawer';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -29,10 +30,35 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 function AppShell() {
+  const [navOpen, setNavOpen] = useState(false);
+  const location = useLocation();
+  // Close the off-canvas menu whenever the route changes.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
   return (
     <DrawerProvider>
       <div className="app-shell">
-        <Sidebar />
+        <header className="topbar">
+          <button
+            type="button"
+            className="menu-btn"
+            aria-label="Open menu"
+            onClick={() => setNavOpen(true)}
+          >
+            ☰
+          </button>
+          <span className="topbar-brand">
+            <span className="logo">📈</span> IPO Manager
+          </span>
+        </header>
+        <div
+          className={`sidebar-scrim${navOpen ? ' open' : ''}`}
+          onClick={() => setNavOpen(false)}
+          aria-hidden="true"
+        />
+        <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
         <main className="main">
           <Routes>
             <Route path="/" element={<Dashboard />} />
