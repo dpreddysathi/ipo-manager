@@ -65,6 +65,8 @@ public class IpoController {
         ipo.setLotSize(body.getLotSize());
         ipo.setStatus(body.getStatus());
         ipo.setNotes(body.getNotes());
+        ipo.setRegistrar(body.getRegistrar());
+        ipo.setRegistrarRef(body.getRegistrarRef());
         return ipoRepository.save(ipo);
     }
 

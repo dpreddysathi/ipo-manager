@@ -10,6 +10,7 @@ import { IpoList } from './pages/IpoList';
 import { IpoDetail } from './pages/IpoDetail';
 import { People } from './pages/People';
 import { MoneyFlow } from './pages/MoneyFlow';
+import { Allotment } from './pages/Allotment';
 import { AuthPage } from './pages/Auth';
 import './styles.css';
 
@@ -65,6 +66,7 @@ function AppShell() {
             <Route path="/ipos/:id" element={<IpoDetail />} />
             <Route path="/people" element={<People />} />
             <Route path="/money-flow" element={<MoneyFlow />} />
+            <Route path="/allotment" element={<Allotment />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>
         </main>

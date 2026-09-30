@@ -12,6 +12,10 @@ export interface Ipo {
   price?: number | null;
   lotSize?: number | null;
   notes?: string | null;
+  /** Allotment registrar: KFINTECH, MUFG, BIGSHARE, BSE, MANUAL. */
+  registrar?: string | null;
+  /** The IPO's key on the registrar's site (KFintech clientId / MUFG company_id). */
+  registrarRef?: string | null;
 }
 
 export interface Person {
@@ -260,6 +264,26 @@ export interface PersonInput {
   notes?: string;
 }
 
+export interface RegistrarIpo {
+  id: string;
+  name: string;
+}
+
+export type AllotmentOutcome =
+  | 'ALLOTTED'
+  | 'NOT_ALLOTTED'
+  | 'NOT_FOUND'
+  | 'NEED_PAN'
+  | 'MANUAL'
+  | 'ERROR';
+
+export interface AllotmentCheckResult {
+  applicationId: number;
+  outcome: AllotmentOutcome;
+  allottedShares?: number | null;
+  message?: string | null;
+}
+
 export interface IpoInput {
   name: string;
   status: IpoStatus;
@@ -269,6 +293,8 @@ export interface IpoInput {
   price?: number;
   lotSize?: number;
   notes?: string;
+  registrar?: string;
+  registrarRef?: string;
 }
 
 export interface TransactionInput {

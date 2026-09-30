@@ -1,5 +1,6 @@
 import type {
   Allotment,
+  AllotmentCheckResult,
   Application,
   ApplicationInput,
   AppStatus,
@@ -18,6 +19,7 @@ import type {
   ProfitLossPeriod,
   ProfitLossReport,
   RegisterInput,
+  RegistrarIpo,
   ReportFilters,
   ReturnInput,
   SaleInput,
@@ -217,6 +219,14 @@ export const api = {
       fromDate: filters?.fromDate,
       toDate: filters?.toDate,
     }),
+
+  // ---- Allotment checking ----
+  /** Live IPO list from a registrar (KFINTECH / MUFG) for registrar setup. */
+  getRegistrarIpos: (registrar: string) =>
+    get<RegistrarIpo[]>(`/api/allotment/registrar-ipos${query({ registrar })}`),
+  /** One PAN lookup against the IPO's registrar; records decisive outcomes. */
+  checkAllotment: (applicationId: number) =>
+    post<AllotmentCheckResult>('/api/allotment/check', { applicationId }),
 
   // ---- Dashboard ----
   getDashboardStats: () => get<DashboardStats>('/api/dashboard/stats'),

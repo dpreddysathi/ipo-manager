@@ -48,6 +48,21 @@ public class Ipo {
     private String notes;
 
     /**
+     * Registrar handling this IPO's allotment: KFINTECH, MUFG (Link Intime),
+     * BIGSHARE, BSE, or MANUAL. Only KFINTECH and MUFG support automatic
+     * PAN checks (their internal endpoints need no captcha); the rest fall
+     * back to a guided deep link.
+     */
+    private String registrar;
+
+    /**
+     * The IPO's identifier on the registrar's own site (KFintech clientId,
+     * MUFG company_id) — the exact key their allotment lookup expects.
+     * Picked from the live registrar list, not typed by hand.
+     */
+    private String registrarRef;
+
+    /**
      * The login account this row belongs to. Every query is scoped to the
      * current user's id, so users only ever see their own data.
      */

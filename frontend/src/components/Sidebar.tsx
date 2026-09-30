@@ -6,6 +6,7 @@ const LINKS = [
   { to: '/ipos', label: 'IPOs', icon: '📈' },
   { to: '/people', label: 'People', icon: '👥' },
   { to: '/money-flow', label: 'Money Flow', icon: '💸' },
+  { to: '/allotment', label: 'Allotment Check', icon: '🎯' },
 ];
 
 export function Sidebar({

@@ -9,13 +9,11 @@ import com.ipomanager.model.Application;
 import com.ipomanager.model.ApplicationStatus;
 import com.ipomanager.model.Ipo;
 import com.ipomanager.model.Person;
-import com.ipomanager.model.Transaction;
-import com.ipomanager.model.TxnStatus;
 import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
-import com.ipomanager.repository.TransactionRepository;
 import com.ipomanager.security.AuthContext;
+import com.ipomanager.service.ApplicationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,7 +39,7 @@ public class ApplicationController {
     private final ApplicationRepository applicationRepository;
     private final PersonRepository personRepository;
     private final IpoRepository ipoRepository;
-    private final TransactionRepository transactionRepository;
+    private final ApplicationService applicationService;
 
     /** Supports the frontend's filters: {@code ipoId} and {@code personId}. */
     @GetMapping
@@ -132,29 +130,7 @@ public class ApplicationController {
     }
 
     private void setStatus(Application app, ApplicationStatus status) {
-        app.setStatus(status);
-        if (status == ApplicationStatus.ALLOTTED || status == ApplicationStatus.NOT_ALLOTTED) {
-            app.setAllottedBy("You");
-            app.setAllottedAt(LocalDateTime.now());
-            // Keep the money lifecycle in sync: open debt legs funding
-            // this person's application follow the allotment outcome.
-            TxnStatus txnStatus = status == ApplicationStatus.ALLOTTED
-                    ? TxnStatus.ALLOCATED : TxnStatus.UNALLOCATED;
-            for (Transaction t : transactionRepository.findByOwnerId(
-                    AuthContext.currentUserId())) {
-                if (t.isSettled() || t.getReturnOf() != null
-                        || t.getStatus() != TxnStatus.SENT) {
-                    continue;
-                }
-                if (t.getReceiverPerson() != null
-                        && t.getReceiverPerson().getId()
-                                .equals(app.getPerson().getId())
-                        && t.getIpo().getId().equals(app.getIpo().getId())) {
-                    t.setStatus(txnStatus);
-                    transactionRepository.save(t);
-                }
-            }
-        }
+        applicationService.applyStatus(app, status, "You");
     }
 
     private void apply(ApplicationRequest req, Application app) {
