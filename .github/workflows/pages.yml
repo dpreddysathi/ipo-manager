@@ -26,7 +26,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
         env:
-          VITE_API_URL: https://cited-assumed-mortality-wing.trycloudflare.com
+          VITE_API_URL: https://river-garbage-reproduction-stunning.trycloudflare.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
