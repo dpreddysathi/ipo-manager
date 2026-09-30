@@ -66,6 +66,13 @@ public class Application {
     /** When the allotted shares were sold (set when profit/loss is recorded). */
     private LocalDateTime soldAt;
 
+    /**
+     * The login account this row belongs to. Every query is scoped to the
+     * current user's id, so users only ever see their own data.
+     */
+    @Column(name = "owner_id")
+    private Long ownerId;
+
     private LocalDateTime createdAt;
 
     @PrePersist

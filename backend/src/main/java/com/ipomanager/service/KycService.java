@@ -7,6 +7,7 @@ import com.ipomanager.model.Person;
 import com.ipomanager.model.PersonKyc;
 import com.ipomanager.repository.PersonKycRepository;
 import com.ipomanager.repository.PersonRepository;
+import com.ipomanager.security.AuthContext;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +36,8 @@ public class KycService {
 
     @Transactional(readOnly = true)
     public KycResponse getKyc(Long personId, boolean reveal) {
-        Person person = personRepository.findById(personId)
+        Person person = personRepository
+                .findByIdAndOwnerId(personId, AuthContext.currentUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("Person", personId));
         PersonKyc kyc = kycRepository.findByPersonId(person.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("KYC for person", personId));
@@ -50,7 +52,8 @@ public class KycService {
 
     @Transactional
     public KycResponse upsert(Long personId, KycRequest req) {
-        Person person = personRepository.findById(personId)
+        Person person = personRepository
+                .findByIdAndOwnerId(personId, AuthContext.currentUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("Person", personId));
         PersonKyc kyc = kycRepository.findByPersonId(person.getId())
                 .orElseGet(() -> {

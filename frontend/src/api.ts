@@ -3,16 +3,20 @@ import type {
   Application,
   ApplicationInput,
   AppStatus,
+  AuthResponse,
+  AuthUser,
   DashboardStats,
   Ipo,
   IpoInput,
   KycInput,
+  LoginInput,
   Person,
   PersonInput,
   PersonKyc,
   PersonReport,
   ProfitLossPeriod,
   ProfitLossReport,
+  RegisterInput,
   ReportFilters,
   SaleInput,
   SendReportResponse,
@@ -30,17 +34,71 @@ const BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ??
   'http://localhost:8080';
 
+// ---- Auth token ----
+
+const TOKEN_KEY = 'ipo-auth-token';
+
+let authToken: string | null = null;
+try {
+  authToken = localStorage.getItem(TOKEN_KEY);
+} catch {
+  /* private mode etc. */
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Called when the backend answers 401 (bad/expired token). The auth
+ * provider registers a handler that logs the user out and sends them
+ * back to the login page.
+ */
+let onUnauthorized: () => void = () => {};
+export function setOnUnauthorized(fn: () => void): void {
+  onUnauthorized = fn;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: { ...headers, ...(init?.headers ?? {}) },
   });
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    // Token bad/expired on a protected endpoint: drop the session and
+    // let the route guard send the user back to the login page.
+    // (401s from /api/auth/login|register are real error messages for
+    // the form, not session expiry — they flow through below.)
+    onUnauthorized();
+    throw new Error('Session expired — please log in again.');
+  }
   if (!res.ok) {
     let detail = '';
     try {
       detail = await res.text();
     } catch {
       /* ignore */
+    }
+    // Surface the backend's {"error": "..."} message when present.
+    try {
+      const parsed = JSON.parse(detail) as { error?: string };
+      if (parsed?.error) detail = parsed.error;
+    } catch {
+      /* keep raw text */
     }
     throw new Error(
       `API ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`,
@@ -71,6 +129,12 @@ function query(
 }
 
 export const api = {
+  // ---- Auth (public — no token needed) ----
+  register: (data: RegisterInput) =>
+    post<AuthResponse>('/api/auth/register', data),
+  login: (data: LoginInput) => post<AuthResponse>('/api/auth/login', data),
+  me: () => get<AuthUser>('/api/auth/me'),
+
   // ---- People ----
   listPeople: () => get<Person[]>('/api/people'),
   getPerson: (id: number) => get<Person>(`/api/people/${id}`),

@@ -12,6 +12,7 @@ import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
 import com.ipomanager.repository.TransactionRepository;
+import com.ipomanager.security.AuthContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,28 +38,33 @@ public class DashboardService {
 
     @Transactional(readOnly = true)
     public DashboardStatsDto stats() {
-        BigDecimal totalReceived = transactionRepository.sumByDirection(TxnDirection.RECEIVED);
-        BigDecimal totalSent = transactionRepository.sumByDirection(TxnDirection.SENT);
+        Long userId = AuthContext.currentUserId();
+        BigDecimal totalReceived =
+                transactionRepository.sumByOwnerIdAndDirection(userId, TxnDirection.RECEIVED);
+        BigDecimal totalSent =
+                transactionRepository.sumByOwnerIdAndDirection(userId, TxnDirection.SENT);
 
         List<Transaction> pending = transactionRepository.findPendingSettlements(
-                TxnDirection.RECEIVED, List.of(IpoStatus.CLOSED, IpoStatus.LISTED));
+                userId, TxnDirection.RECEIVED, List.of(IpoStatus.CLOSED, IpoStatus.LISTED));
         BigDecimal pendingTotal = pending.stream()
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         LocalDateTime yearStart = LocalDate.now().withDayOfYear(1).atStartOfDay();
         LocalDateTime now = LocalDateTime.now();
-        long appsThisYear = applicationRepository.countByCreatedAtBetween(yearStart, now);
+        long appsThisYear = applicationRepository
+                .countByOwnerIdAndCreatedAtBetween(userId, yearStart, now);
         long allottedThisYear = applicationRepository
-                .countByStatusAndCreatedAtBetween(ApplicationStatus.ALLOTTED, yearStart, now);
+                .countByOwnerIdAndStatusAndCreatedAtBetween(
+                        userId, ApplicationStatus.ALLOTTED, yearStart, now);
         double rate = appsThisYear == 0 ? 0.0
                 : BigDecimal.valueOf(100.0 * allottedThisYear / appsThisYear)
                         .setScale(1, RoundingMode.HALF_UP).doubleValue();
 
         return new DashboardStatsDto(
-                ipoRepository.countByStatus(IpoStatus.OPEN),
+                ipoRepository.countByOwnerIdAndStatus(userId, IpoStatus.OPEN),
                 totalReceived,
-                personRepository.count(),
+                personRepository.countByOwnerId(userId),
                 totalReceived.subtract(totalSent),
                 new DashboardStatsDto.PendingSettlements(pending.size(), pendingTotal),
                 rate);
@@ -70,7 +76,7 @@ public class DashboardService {
      */
     @Transactional(readOnly = true)
     public List<AllotmentDto> allotments() {
-        return applicationRepository.findAll().stream()
+        return applicationRepository.findByOwnerId(AuthContext.currentUserId()).stream()
                 .filter(a -> a.getStatus() == ApplicationStatus.ALLOTTED)
                 .sorted(Comparator.comparing(Application::getAllottedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
@@ -103,7 +109,8 @@ public class DashboardService {
             default -> null;
         };
 
-        List<ProfitLossReportDto.Entry> entries = applicationRepository.findAll().stream()
+        List<ProfitLossReportDto.Entry> entries = applicationRepository
+                .findByOwnerId(AuthContext.currentUserId()).stream()
                 .filter(a -> a.getProfitLoss() != null && a.getSoldAt() != null)
                 .filter(a -> cutoff == null || !a.getSoldAt().isBefore(cutoff))
                 .sorted(Comparator.comparing(Application::getSoldAt).reversed())

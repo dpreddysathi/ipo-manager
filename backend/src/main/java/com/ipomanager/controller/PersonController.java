@@ -7,6 +7,7 @@ import com.ipomanager.dto.ReportFilter;
 import com.ipomanager.exception.ResourceNotFoundException;
 import com.ipomanager.model.Person;
 import com.ipomanager.repository.PersonRepository;
+import com.ipomanager.security.AuthContext;
 import com.ipomanager.service.KycService;
 import com.ipomanager.service.ReportService;
 import jakarta.validation.Valid;
@@ -37,25 +38,24 @@ public class PersonController {
 
     @GetMapping
     public List<Person> list() {
-        return personRepository.findAll();
+        return personRepository.findByOwnerId(AuthContext.currentUserId());
     }
 
     @GetMapping("/{id}")
     public Person get(@PathVariable Long id) {
-        return personRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Person", id));
+        return owned(id);
     }
 
     @PostMapping
     public ResponseEntity<Person> create(@Valid @RequestBody Person person) {
         person.setId(null);
+        person.setOwnerId(AuthContext.currentUserId());
         return ResponseEntity.status(201).body(personRepository.save(person));
     }
 
     @PutMapping("/{id}")
     public Person update(@PathVariable Long id, @Valid @RequestBody Person body) {
-        Person person = personRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Person", id));
+        Person person = owned(id);
         person.setName(body.getName());
         person.setPhone(body.getPhone());
         // Only overwrite circle when the caller actually sent one — the
@@ -70,10 +70,14 @@ public class PersonController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        Person person = personRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Person", id));
-        personRepository.delete(person);
+        personRepository.delete(owned(id));
         return ResponseEntity.noContent().build();
+    }
+
+    /** Person by id, but only if it belongs to the logged-in user. */
+    private Person owned(Long id) {
+        return personRepository.findByIdAndOwnerId(id, AuthContext.currentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("Person", id));
     }
 
     // ---- KYC (masked by default, per spec §6) ----
@@ -86,7 +90,7 @@ public class PersonController {
 
     @PutMapping("/{id}/kyc")
     public KycResponse upsertKyc(@PathVariable Long id,
-                                @RequestBody KycRequest request) {
+                                 @RequestBody KycRequest request) {
         return kycService.upsert(id, request);
     }
 

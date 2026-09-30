@@ -21,6 +21,7 @@ import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
 import com.ipomanager.repository.ReportLogRepository;
 import com.ipomanager.repository.TransactionRepository;
+import com.ipomanager.security.AuthContext;
 import com.ipomanager.util.Inr;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -73,12 +74,13 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public PersonReportDto buildReport(Long personId, Long ipoId, ReportFilter filter) {
-        Person person = personRepository.findById(personId)
+        Long userId = AuthContext.currentUserId();
+        Person person = personRepository.findByIdAndOwnerId(personId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Person", personId));
 
         final List<Ipo> ipos;
         if (ipoId != null) {
-            Ipo ipo = ipoRepository.findById(ipoId)
+            Ipo ipo = ipoRepository.findByIdAndOwnerId(ipoId, userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Ipo", ipoId));
             ipos = List.of(ipo);
         } else {
@@ -207,9 +209,10 @@ public class ReportService {
 
     @Transactional
     public SendReportResponse sendReport(SendReportRequest request) {
+        Long userId = AuthContext.currentUserId();
         Long personId = request.getPersonId();
         Long ipoId = request.getIpoId();
-        Person person = personRepository.findById(personId)
+        Person person = personRepository.findByIdAndOwnerId(personId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Person", personId));
         ReportFilter filter = request.toFilter();
         PersonReportDto report = buildReport(personId, ipoId, filter);
@@ -248,7 +251,9 @@ public class ReportService {
 
         ReportLog entry = new ReportLog();
         entry.setPerson(person);
-        entry.setIpo(ipoId != null ? ipoRepository.findById(ipoId).orElse(null) : null);
+        entry.setIpo(ipoId != null
+                ? ipoRepository.findByIdAndOwnerId(ipoId, userId).orElse(null)
+                : null);
         entry.setChannel("whatsapp");
         entry.setSentTo(digits);
         entry.setSentAt(LocalDateTime.now());

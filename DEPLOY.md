@@ -25,13 +25,21 @@ export KYC_ENCRYPTION_KEY=$(openssl rand -base64 32)
 echo "$KYC_ENCRYPTION_KEY" > ~/.ipo-kyc-key   # keep this file private
 chmod 600 ~/.ipo-kyc-key
 
+# 1b) Generate the JWT signing secret (for login tokens).
+#     Any random value works; keep it private like the KYC key.
+openssl rand -hex 32 > ~/.ipo-jwt-secret
+chmod 600 ~/.ipo-jwt-secret
+
 # 2) Build and run
 mvn -DskipTests package
-KYC_ENCRYPTION_KEY=$(cat ~/.ipo-kyc-key) java -jar target/*.jar
+KYC_ENCRYPTION_KEY=$(cat ~/.ipo-kyc-key) \
+AUTH_JWT_SECRET=$(cat ~/.ipo-jwt-secret) \
+java -jar target/*.jar
 # → http://localhost:8080
 ```
 
-The app fails fast on startup if `KYC_ENCRYPTION_KEY` is missing or invalid.
+The app fails fast on startup if `KYC_ENCRYPTION_KEY` or `AUTH_JWT_SECRET`
+is missing or invalid.
 
 Quick smoke test (in another terminal):
 
@@ -57,6 +65,7 @@ docker run -d --name ipo-manager --restart unless-stopped \
   -p 8080:8080 \
   -v ipo-data:/app/data \
   -e KYC_ENCRYPTION_KEY="$(cat ~/.ipo-kyc-key)" \
+  -e AUTH_JWT_SECRET="$(cat ~/.ipo-jwt-secret)" \
   ipo-manager-backend
 
 docker logs -f ipo-manager
@@ -72,6 +81,8 @@ docker run --rm -v ipo-data:/data -v ~/backups:/backup \
 
 Keep `~/.ipo-kyc-key` backed up separately (password manager, USB stick).
 Without the key, the database backup's KYC fields are unrecoverable.
+Also back up `~/.ipo-jwt-secret` — rotating it logs every user out
+(their saved tokens stop verifying), so keep the same value across rebuilds.
 
 ## 4. Make the backend reachable from the internet (for GitHub Pages)
 
@@ -91,6 +102,7 @@ docker run -d --name ipo-manager --restart unless-stopped \
   -p 8080:8080 \
   -v ipo-data:/app/data \
   -e KYC_ENCRYPTION_KEY="$(cat ~/.ipo-kyc-key)" \
+  -e AUTH_JWT_SECRET="$(cat ~/.ipo-jwt-secret)" \
   -e APP_CORS_ALLOWED_ORIGINS="https://<your-username>.github.io" \
   ipo-manager-backend
 ```

@@ -261,3 +261,26 @@ export interface KycInput {
   accountPassword?: string;
   mpin?: string;
 }
+
+/** The logged-in user (from /api/auth/me or login/register responses). */
+export interface AuthUser {
+  id: number;
+  name: string;
+  email: string;
+}
+
+/** What register/login return: token + who it belongs to. */
+export interface AuthResponse extends AuthUser {
+  token: string;
+}
+
+export interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export interface RegisterInput {
+  name: string;
+  email: string;
+  password: string;
+}

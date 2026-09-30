@@ -46,4 +46,11 @@ public class Ipo {
 
     @Column(length = 2000)
     private String notes;
+
+    /**
+     * The login account this row belongs to. Every query is scoped to the
+     * current user's id, so users only ever see their own data.
+     */
+    @Column(name = "owner_id")
+    private Long ownerId;
 }

@@ -13,6 +13,7 @@ import com.ipomanager.model.TxnStatus;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
 import com.ipomanager.repository.TransactionRepository;
+import com.ipomanager.security.AuthContext;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -50,7 +51,7 @@ public class TransactionController {
             @RequestParam(required = false) Long personId,
             @RequestParam(required = false) String direction,
             @RequestParam(defaultValue = "false") boolean pendingOnly) {
-        return transactionRepository.findAll().stream()
+        return transactionRepository.findByOwnerId(AuthContext.currentUserId()).stream()
                 .filter(t -> ipoId == null || t.getIpo().getId().equals(ipoId))
                 .filter(t -> personId == null || t.getPerson().getId().equals(personId))
                 .filter(t -> direction == null || direction.isBlank()
@@ -63,14 +64,14 @@ public class TransactionController {
 
     @GetMapping("/{id}")
     public TransactionDto get(@PathVariable Long id) {
-        return TransactionDto.from(transactionRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", id)));
+        return TransactionDto.from(owned(id));
     }
 
     @PostMapping
     public ResponseEntity<TransactionDto> create(@Valid @RequestBody TransactionRequest req) {
         Transaction txn = new Transaction();
         apply(req, txn);
+        txn.setOwnerId(AuthContext.currentUserId());
         return ResponseEntity.status(201)
                 .body(TransactionDto.from(transactionRepository.save(txn)));
     }
@@ -78,26 +79,28 @@ public class TransactionController {
     @PutMapping("/{id}")
     public TransactionDto update(@PathVariable Long id,
                                  @Valid @RequestBody TransactionRequest req) {
-        Transaction txn = transactionRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", id));
+        Transaction txn = owned(id);
         apply(req, txn);
         return TransactionDto.from(transactionRepository.save(txn));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        Transaction txn = transactionRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", id));
-        transactionRepository.delete(txn);
+        transactionRepository.delete(owned(id));
         return ResponseEntity.noContent().build();
+    }
+
+    /** Transaction by id, but only if it belongs to the logged-in user. */
+    private Transaction owned(Long id) {
+        return transactionRepository.findByIdAndOwnerId(id, AuthContext.currentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction", id));
     }
 
     /** Settlement workflow: mark a received transaction as settled (§4.5). */
     @PatchMapping("/{id}/settle")
     public TransactionDto settle(@PathVariable Long id,
                                  @RequestBody(required = false) SettleRequest req) {
-        Transaction txn = transactionRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", id));
+        Transaction txn = owned(id);
         TxnStatus status = TxnStatus.SETTLED_UNALLOCATED;
         BigDecimal profitLoss = null;
         if (req != null && req.getType() != null
@@ -110,9 +113,10 @@ public class TransactionController {
     }
 
     private void apply(TransactionRequest req, Transaction txn) {
-        Person person = personRepository.findById(req.getPersonId())
+        Long userId = AuthContext.currentUserId();
+        Person person = personRepository.findByIdAndOwnerId(req.getPersonId(), userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Person", req.getPersonId()));
-        Ipo ipo = ipoRepository.findById(req.getIpoId())
+        Ipo ipo = ipoRepository.findByIdAndOwnerId(req.getIpoId(), userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Ipo", req.getIpoId()));
         txn.setPerson(person);
         txn.setIpo(ipo);

@@ -14,12 +14,20 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
+/**
+ * A login account. Every Person / IPO / Transaction / Application row
+ * belongs to exactly one user via its {@code ownerId} column, so each
+ * user only ever sees their own data.
+ *
+ * <p>Table is {@code app_user} because {@code user} is a reserved word
+ * in H2 / Postgres.
+ */
 @Entity
-@Table(name = "people")
+@Table(name = "app_user")
 @Getter
 @Setter
 @NoArgsConstructor
-public class Person {
+public class AppUser {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,21 +36,13 @@ public class Person {
     @NotBlank(message = "name is required")
     private String name;
 
-    private String phone;
+    /** Login email — stored lowercase, unique. */
+    @Column(nullable = false, unique = true)
+    private String email;
 
-    /** Group label like family / friends. */
-    private String circle;
-
-    /** Free-text note about the person. */
-    @Column(length = 1000)
-    private String notes;
-
-    /**
-     * The login account this row belongs to. Every query is scoped to the
-     * current user's id, so users only ever see their own data.
-     */
-    @Column(name = "owner_id")
-    private Long ownerId;
+    /** BCrypt hash — the raw password is never stored. */
+    @Column(nullable = false)
+    private String passwordHash;
 
     private LocalDateTime createdAt;
 

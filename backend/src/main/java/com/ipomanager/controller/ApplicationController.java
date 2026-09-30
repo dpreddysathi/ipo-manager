@@ -16,6 +16,7 @@ import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
 import com.ipomanager.repository.TransactionRepository;
+import com.ipomanager.security.AuthContext;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -48,7 +49,7 @@ public class ApplicationController {
     public List<ApplicationDto> list(
             @RequestParam(required = false) Long ipoId,
             @RequestParam(required = false) Long personId) {
-        return applicationRepository.findAll().stream()
+        return applicationRepository.findByOwnerId(AuthContext.currentUserId()).stream()
                 .filter(a -> ipoId == null || a.getIpo().getId().equals(ipoId))
                 .filter(a -> personId == null || a.getPerson().getId().equals(personId))
                 .map(ApplicationDto::from)
@@ -57,14 +58,14 @@ public class ApplicationController {
 
     @GetMapping("/{id}")
     public ApplicationDto get(@PathVariable Long id) {
-        return ApplicationDto.from(applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application", id)));
+        return ApplicationDto.from(owned(id));
     }
 
     @PostMapping
     public ResponseEntity<ApplicationDto> create(@Valid @RequestBody ApplicationRequest req) {
         Application app = new Application();
         apply(req, app);
+        app.setOwnerId(AuthContext.currentUserId());
         if (req.getStatus() != null) {
             setStatus(app, parseStatus(req.getStatus()));
         }
@@ -75,8 +76,7 @@ public class ApplicationController {
     @PutMapping("/{id}")
     public ApplicationDto update(@PathVariable Long id,
                                  @Valid @RequestBody ApplicationRequest req) {
-        Application app = applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application", id));
+        Application app = owned(id);
         apply(req, app);
         if (req.getStatus() != null) {
             setStatus(app, parseStatus(req.getStatus()));
@@ -86,10 +86,14 @@ public class ApplicationController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        Application app = applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application", id));
-        applicationRepository.delete(app);
+        applicationRepository.delete(owned(id));
         return ResponseEntity.noContent().build();
+    }
+
+    /** Application by id, but only if it belongs to the logged-in user. */
+    private Application owned(Long id) {
+        return applicationRepository.findByIdAndOwnerId(id, AuthContext.currentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("Application", id));
     }
 
     /**
@@ -99,8 +103,7 @@ public class ApplicationController {
     @PatchMapping("/{id}/status")
     public ApplicationDto updateStatus(@PathVariable Long id,
                                        @Valid @RequestBody StatusUpdateRequest req) {
-        Application app = applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application", id));
+        Application app = owned(id);
         setStatus(app, parseStatus(req.getStatus()));
         return ApplicationDto.from(applicationRepository.save(app));
     }
@@ -112,8 +115,7 @@ public class ApplicationController {
     @PatchMapping("/{id}/sale")
     public ApplicationDto recordSale(@PathVariable Long id,
                                      @RequestBody SaleRequest req) {
-        Application app = applicationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Application", id));
+        Application app = owned(id);
         app.setProfitLoss(req.getProfitLoss());
         app.setSoldAt(req.getSoldAt() != null ? req.getSoldAt() : LocalDateTime.now());
         ApplicationDto dto = ApplicationDto.from(applicationRepository.save(app));
@@ -147,9 +149,10 @@ public class ApplicationController {
     }
 
     private void apply(ApplicationRequest req, Application app) {
-        Person person = personRepository.findById(req.getPersonId())
+        Long userId = AuthContext.currentUserId();
+        Person person = personRepository.findByIdAndOwnerId(req.getPersonId(), userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Person", req.getPersonId()));
-        Ipo ipo = ipoRepository.findById(req.getIpoId())
+        Ipo ipo = ipoRepository.findByIdAndOwnerId(req.getIpoId(), userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Ipo", req.getIpoId()));
         app.setPerson(person);
         app.setIpo(ipo);
