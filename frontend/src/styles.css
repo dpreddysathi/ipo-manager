@@ -1223,3 +1223,44 @@ body {
     padding: 9px 10px;
   }
 }
+
+/* ---- Person-to-person ledger (drawer) ---- */
+.party-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--indigo);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: inherit;
+  text-align: left;
+}
+.party-link:hover { text-decoration: underline; }
+.owes-card {
+  padding: 10px 14px;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.owes-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+.txn-row { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.txn-row:last-child { border-bottom: none; }
+.txn-row.struck .txn-main { text-decoration: line-through; opacity: 0.55; }
+.txn-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.95rem; }
+.txn-main .num { margin-left: auto; }
+.txn-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 4px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.struck-row td:first-child { text-decoration: line-through; opacity: 0.6; }

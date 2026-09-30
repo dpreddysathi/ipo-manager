@@ -1,6 +1,8 @@
 package com.ipomanager.service;
 
 import com.ipomanager.dto.ApplicationDto;
+import com.ipomanager.dto.IpoSummaryDto;
+import com.ipomanager.dto.PartyOwed;
 import com.ipomanager.dto.PersonReportDto;
 import com.ipomanager.dto.PersonReportRow;
 import com.ipomanager.dto.ReportFilter;
@@ -14,7 +16,6 @@ import com.ipomanager.model.Ipo;
 import com.ipomanager.model.Person;
 import com.ipomanager.model.ReportLog;
 import com.ipomanager.model.Transaction;
-import com.ipomanager.model.TxnDirection;
 import com.ipomanager.model.TxnStatus;
 import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
@@ -33,10 +34,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -45,10 +49,13 @@ import java.util.Set;
  * Builds person reports (the data behind the Person Report Drawer) and the
  * plain-text report messages sent via {@code POST /api/reports/send}.
  *
- * <p>The message is always built server-side from the report data — the
- * client never supplies message text. No SMS gateway is configured, so
- * sending returns a pre-filled {@code wa.me} link (status "manual") and a
- * {@link ReportLog} row is persisted for the audit trail.
+ * <p>Money is person-to-person: every transaction has a sender and a
+ * receiver (either side may be you, "Me"), and the receiver owes the
+ * sender until a return leg moves the money back. The message is always
+ * built server-side from the report data — the client never supplies
+ * message text. No SMS gateway is configured, so sending returns a
+ * pre-filled {@code wa.me} link (status "manual") and a {@link ReportLog}
+ * row is persisted for the audit trail.
  *
  * <p>Both the drawer preview and the sent message accept the same
  * {@link ReportFilter} (settled/unsettled, unallotted-only, IPO, date
@@ -85,7 +92,7 @@ public class ReportService {
             ipos = List.of(ipo);
         } else {
             Set<Long> ids = new LinkedHashSet<>();
-            transactionRepository.findByPersonId(personId)
+            transactionRepository.findInvolvingPerson(userId, personId)
                     .forEach(t -> ids.add(t.getIpo().getId()));
             applicationRepository.findByPersonId(personId)
                     .forEach(a -> ids.add(a.getIpo().getId()));
@@ -103,14 +110,15 @@ public class ReportService {
                 .map(PersonReportRow::getApplied).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalReceived = rows.stream()
                 .map(PersonReportRow::getReceived).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalSentBack = rows.stream()
-                .map(PersonReportRow::getSentBack).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalSent = rows.stream()
+                .map(PersonReportRow::getSent).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalOutstanding = rows.stream()
+                .map(PersonReportRow::getOutstanding).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new PersonReportDto(
                 person, rows,
                 new PersonReportDto.ReportTotals(
-                        totalApplied, totalReceived, totalSentBack,
-                        totalReceived.subtract(totalSentBack)));
+                        totalApplied, totalReceived, totalSent, totalOutstanding));
     }
 
     /**
@@ -118,9 +126,52 @@ public class ReportService {
      * excluded by the active filters.
      */
     private PersonReportRow buildRow(Long personId, Ipo ipo, ReportFilter filter) {
-        List<Transaction> txns = filteredTxns(personId, ipo.getId(), filter);
-        BigDecimal received = sum(txns, TxnDirection.RECEIVED);
-        BigDecimal sentBack = sum(txns, TxnDirection.SENT);
+        Long userId = AuthContext.currentUserId();
+        String personKey = "P:" + personId;
+        List<Transaction> allTxns = transactionRepository
+                .findInvolvingPerson(userId, personId).stream()
+                .filter(t -> t.getIpo().getId().equals(ipo.getId()))
+                .toList();
+
+        // Ledger truth is computed over everything; filters only change
+        // what is listed and summed.
+        Map<Long, BigDecimal> outstanding = Ledger.outstandingByTxn(allTxns);
+        Map<Long, Boolean> struck = Ledger.struckByTxn(allTxns);
+
+        List<Transaction> txns = allTxns.stream()
+                .filter(t -> filter.isIncludeSettled() || !t.isSettled())
+                .filter(t -> inWindow(t.getTxnDate(), filter))
+                .toList();
+
+        BigDecimal received = txns.stream()
+                .filter(t -> personKey.equals(Ledger.partyKey(t.getReceiverPerson())))
+                .map(Transaction::getAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sent = txns.stream()
+                .filter(t -> personKey.equals(Ledger.partyKey(t.getSenderPerson())))
+                .map(Transaction::getAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Map<String, String> names = partyNames(allTxns);
+        List<PartyOwed> owes = new ArrayList<>();
+        List<PartyOwed> owedBy = new ArrayList<>();
+        for (Map.Entry<Ledger.Triple, BigDecimal> e
+                : Ledger.netByTriple(allTxns).entrySet()) {
+            Ledger.Triple triple = e.getKey();
+            if (triple.receiverKey().equals(personKey)) {
+                owes.add(new PartyOwed(partyIdOf(triple.senderKey()),
+                        names.getOrDefault(triple.senderKey(), "?"), e.getValue()));
+            } else if (triple.senderKey().equals(personKey)) {
+                owedBy.add(new PartyOwed(partyIdOf(triple.receiverKey()),
+                        names.getOrDefault(triple.receiverKey(), "?"), e.getValue()));
+            }
+        }
+        Comparator<PartyOwed> byAmount =
+                Comparator.comparing(PartyOwed::getAmount).reversed();
+        owes.sort(byAmount);
+        owedBy.sort(byAmount);
+        BigDecimal outstandingTotal = owes.stream().map(PartyOwed::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Application> applications = filteredApps(personId, ipo.getId(), filter);
         BigDecimal applied = applications.stream()
@@ -128,11 +179,8 @@ public class ReportService {
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal held = received.subtract(sentBack);
-
-        if (!filter.isIncludeSettled() && held.signum() == 0
-                && received.signum() == 0 && sentBack.signum() == 0
-                && applied.signum() == 0) {
+        if (!filter.isIncludeSettled() && received.signum() == 0
+                && sent.signum() == 0 && applied.signum() == 0) {
             return null;
         }
         if (filter.isOnlyUnallotted()
@@ -140,7 +188,7 @@ public class ReportService {
             return null;
         }
         if (filter.hasDateWindow()
-                && received.signum() == 0 && sentBack.signum() == 0 && applied.signum() == 0) {
+                && received.signum() == 0 && sent.signum() == 0 && applied.signum() == 0) {
             return null;
         }
 
@@ -150,19 +198,138 @@ public class ReportService {
         List<TransactionDto> txnDtos = txns.stream()
                 .sorted(Comparator.comparing(Transaction::getTxnDate,
                         Comparator.nullsLast(Comparator.naturalOrder())).reversed())
-                .map(TransactionDto::from)
+                .map(t -> {
+                    TransactionDto dto = TransactionDto.from(t);
+                    dto.setOutstanding(outstanding.getOrDefault(t.getId(),
+                            BigDecimal.ZERO));
+                    dto.setStruck(struck.getOrDefault(t.getId(), false));
+                    return dto;
+                })
                 .toList();
         return new PersonReportRow(
-                ipo.getId(), ipo.getName(), applied, received, sentBack,
-                held, deriveStatus(applications),
-                applicationDtos, txnDtos);
+                ipo.getId(), ipo.getName(), applied, deriveStatus(applications),
+                applicationDtos, txnDtos, owes, owedBy,
+                received, sent, outstandingTotal);
     }
 
-    private List<Transaction> filteredTxns(Long personId, Long ipoId, ReportFilter filter) {
-        return transactionRepository.findByPersonIdAndIpoId(personId, ipoId).stream()
-                .filter(t -> filter.isIncludeSettled() || !t.isSettled())
-                .filter(t -> inWindow(t.getTxnDate(), filter))
+    /**
+     * The complete picture of one IPO: applications with their funders,
+     * allotment counts, every money movement, and who still owes whom.
+     */
+    @Transactional(readOnly = true)
+    public IpoSummaryDto summary(Long ipoId) {
+        Long userId = AuthContext.currentUserId();
+        Ipo ipo = ipoRepository.findByIdAndOwnerId(ipoId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ipo", ipoId));
+
+        List<Transaction> txns = transactionRepository.findByIpo(userId, ipoId);
+        Map<Long, BigDecimal> outstanding = Ledger.outstandingByTxn(txns);
+        Map<Long, Boolean> struck = Ledger.struckByTxn(txns);
+        Map<String, String> names = partyNames(txns);
+
+        List<TransactionDto> txnDtos = txns.stream()
+                .sorted(Comparator.comparing(Transaction::getTxnDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .map(t -> {
+                    TransactionDto dto = TransactionDto.from(t);
+                    dto.setOutstanding(outstanding.getOrDefault(t.getId(),
+                            BigDecimal.ZERO));
+                    dto.setStruck(struck.getOrDefault(t.getId(), false));
+                    return dto;
+                })
                 .toList();
+
+        List<IpoSummaryDto.DebtDto> debts = Ledger.netByTriple(txns).entrySet().stream()
+                .map(e -> new IpoSummaryDto.DebtDto(
+                        partyIdOf(e.getKey().senderKey()),
+                        names.getOrDefault(e.getKey().senderKey(), "?"),
+                        partyIdOf(e.getKey().receiverKey()),
+                        names.getOrDefault(e.getKey().receiverKey(), "?"),
+                        e.getValue()))
+                .sorted(Comparator.comparing(IpoSummaryDto.DebtDto::getAmount)
+                        .reversed())
+                .toList();
+
+        List<Application> applications =
+                applicationRepository.findByIpo(userId, ipoId);
+        List<IpoSummaryDto.ApplicationFundingDto> funding =
+                applications.stream().map(app -> {
+                    String applicantKey =
+                            Ledger.partyKey(app.getPerson());
+                    Map<String, List<Transaction>> byFunder = new LinkedHashMap<>();
+                    for (Transaction t : txns) {
+                        if (t.getReturnOf() != null) {
+                            continue;
+                        }
+                        if (!applicantKey.equals(
+                                Ledger.partyKey(t.getReceiverPerson()))) {
+                            continue;
+                        }
+                        byFunder.computeIfAbsent(
+                                        Ledger.partyKey(t.getSenderPerson()),
+                                        k -> new ArrayList<>())
+                                .add(t);
+                    }
+                    List<IpoSummaryDto.FunderDto> funders = byFunder.entrySet().stream()
+                            .map(e -> new IpoSummaryDto.FunderDto(
+                                    partyIdOf(e.getKey()),
+                                    names.getOrDefault(e.getKey(), "?"),
+                                    e.getValue().stream().map(Transaction::getAmount)
+                                            .filter(Objects::nonNull)
+                                            .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                    e.getValue().stream()
+                                            .map(t -> outstanding.getOrDefault(t.getId(),
+                                                    BigDecimal.ZERO))
+                                            .reduce(BigDecimal.ZERO, BigDecimal::add)))
+                            .sorted(Comparator.comparing(
+                                    IpoSummaryDto.FunderDto::getAmount).reversed())
+                            .toList();
+                    BigDecimal fundedTotal = funders.stream()
+                            .map(IpoSummaryDto.FunderDto::getAmount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal outstandingTotal = funders.stream()
+                            .map(IpoSummaryDto.FunderDto::getOutstanding)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    return new IpoSummaryDto.ApplicationFundingDto(
+                            ApplicationDto.from(app), funders,
+                            fundedTotal, outstandingTotal);
+                }).toList();
+
+        int allotted = (int) applications.stream()
+                .filter(a -> a.getStatus() == ApplicationStatus.ALLOTTED).count();
+        int notAllotted = (int) applications.stream()
+                .filter(a -> a.getStatus() == ApplicationStatus.NOT_ALLOTTED).count();
+        BigDecimal appliedTotal = applications.stream()
+                .map(Application::getAppliedAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal receivedTotal = txns.stream()
+                .filter(t -> t.getReturnOf() == null)
+                .map(Transaction::getAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal outstandingTotal = debts.stream()
+                .map(IpoSummaryDto.DebtDto::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new IpoSummaryDto(ipo.getId(), ipo.getName(),
+                ipo.getStatus() == null ? null : ipo.getStatus().name(),
+                applications.size(), allotted, notAllotted, appliedTotal,
+                txnDtos, debts, funding, receivedTotal, outstandingTotal);
+    }
+
+    /** Resolves party keys ("ME" / "P:&lt;id&gt;") to display names. */
+    private static Map<String, String> partyNames(List<Transaction> txns) {
+        Map<String, String> names = new LinkedHashMap<>();
+        for (Transaction t : txns) {
+            names.putIfAbsent(Ledger.partyKey(t.getSenderPerson()),
+                    t.getSenderName());
+            names.putIfAbsent(Ledger.partyKey(t.getReceiverPerson()),
+                    t.getReceiverName());
+        }
+        return names;
+    }
+
+    private static Long partyIdOf(String key) {
+        return key.startsWith("P:") ? Long.parseLong(key.substring(2)) : null;
     }
 
     private List<Application> filteredApps(Long personId, Long ipoId, ReportFilter filter) {
@@ -181,14 +348,6 @@ public class ReportService {
             return false;
         }
         return filter.getToDate() == null || !date.isAfter(filter.getToDate());
-    }
-
-    private BigDecimal sum(List<Transaction> txns, TxnDirection direction) {
-        return txns.stream()
-                .filter(t -> t.getDirection() == direction)
-                .map(Transaction::getAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private String deriveStatus(List<Application> apps) {
@@ -226,20 +385,7 @@ public class ReportService {
                         + ", no IPO activity matches the selected filters."
                         + "\n— via IPO Manager";
             } else {
-                List<Transaction> txns = filteredTxns(personId, ipoId, filter);
-                List<Application> applications = filteredApps(personId, ipoId, filter);
-                List<Transaction> receivedTxns = txns.stream()
-                        .filter(t -> t.getDirection() == TxnDirection.RECEIVED)
-                        .sorted(Comparator.comparing(Transaction::getTxnDate,
-                                Comparator.nullsLast(Comparator.naturalOrder())))
-                        .toList();
-                List<Transaction> sentTxns = txns.stream()
-                        .filter(t -> t.getDirection() == TxnDirection.SENT)
-                        .sorted(Comparator.comparing(Transaction::getTxnDate,
-                                Comparator.nullsLast(Comparator.naturalOrder())))
-                        .toList();
-                message = singleIpoMessage(person, row.get(), applications,
-                        receivedTxns, sentTxns, filterNote);
+                message = singleIpoMessage(person, row.get(), filterNote);
             }
         } else {
             message = allIposMessage(person, report, filterNote);
@@ -264,9 +410,6 @@ public class ReportService {
     }
 
     private String singleIpoMessage(Person person, PersonReportRow row,
-                                    List<Application> applications,
-                                    List<Transaction> receivedTxns,
-                                    List<Transaction> sentTxns,
                                     String filterNote) {
         StringBuilder sb = new StringBuilder();
         sb.append("Hi ").append(person.getName())
@@ -275,46 +418,37 @@ public class ReportService {
         sb.append("Applied: ").append(Inr.format(row.getApplied())).append("\n");
         sb.append("Status: ").append(statusLabel(row.getStatus())).append("\n");
 
-        if (!receivedTxns.isEmpty()) {
-            sb.append("Received:\n");
-            for (Transaction t : receivedTxns) {
-                sb.append("  ").append(Inr.format(t.getAmount()));
-                if (t.getTxnDate() != null) {
-                    sb.append(" on ").append(t.getTxnDate().format(DAY_MONTH_TIME));
+        if (!row.getOwes().isEmpty()) {
+            sb.append("You owe:\n");
+            for (PartyOwed o : row.getOwes()) {
+                sb.append("  ").append(Inr.format(o.getAmount()))
+                        .append(" to ").append(o.getPartyName()).append("\n");
+            }
+        }
+        if (!row.getOwedBy().isEmpty()) {
+            sb.append("Owed to you:\n");
+            for (PartyOwed o : row.getOwedBy()) {
+                sb.append("  ").append(Inr.format(o.getAmount()))
+                        .append(" from ").append(o.getPartyName()).append("\n");
+            }
+        }
+
+        if (row.getTransactions() != null && !row.getTransactions().isEmpty()) {
+            sb.append("Movements:\n");
+            for (TransactionDto t : row.getTransactions()) {
+                sb.append("  ").append(t.getSenderName()).append(" → ")
+                        .append(t.getReceiverName()).append(" ")
+                        .append(Inr.format(t.getAmount()));
+                if (t.getDate() != null) {
+                    sb.append(" on ").append(t.getDate().format(DAY_MONTH_TIME));
                 }
                 sb.append(txnStatusNote(t));
                 sb.append("\n");
             }
         }
 
-        BigDecimal refund = applications.stream()
-                .map(Application::getRefundAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (refund.signum() > 0) {
-            sb.append("Refund from exchange: ").append(Inr.format(refund)).append("\n");
-        }
-
-        if (row.getSentBack().signum() > 0) {
-            sb.append("Sent back to you: ").append(Inr.format(row.getSentBack()));
-            if (!sentTxns.isEmpty() && sentTxns.get(sentTxns.size() - 1).getTxnDate() != null) {
-                sb.append(" on ").append(
-                        sentTxns.get(sentTxns.size() - 1).getTxnDate().format(DAY_MONTH_TIME));
-            }
-            sb.append("\n");
-        }
-
-        BigDecimal held = row.getHeld();
-        sb.append("Balance: ").append(Inr.format(held)).append(" — ");
-        int cmp = held.compareTo(BigDecimal.ZERO);
-        if (cmp == 0) {
-            sb.append("settled.");
-        } else if (cmp > 0) {
-            sb.append("pending.");
-        } else {
-            sb.append("overpaid.");
-        }
-        sb.append("\n");
+        sb.append("Still owed by you: ").append(Inr.format(row.getOutstanding()));
+        sb.append(row.getOutstanding().signum() == 0 ? " — settled.\n" : " — pending.\n");
         appendFilterNote(sb, filterNote);
         sb.append("— via IPO Manager");
         return sb.toString();
@@ -325,25 +459,23 @@ public class ReportService {
         sb.append("Hi ").append(person.getName()).append(", your IPO summary:\n");
         for (PersonReportRow row : report.getIpos()) {
             sb.append("- ").append(row.getIpoName())
-                    .append(": applied ").append(Inr.format(row.getApplied()))
-                    .append(", received ").append(Inr.format(row.getReceived()));
-            if (row.getTransactions() != null && !row.getTransactions().isEmpty()) {
-                String when = row.getTransactions().stream()
-                        .filter(t -> "RECEIVED".equals(t.getDirection()) && t.getDate() != null)
-                        .limit(3)
-                        .map(t -> t.getDate().format(DAY_MONTH_TIME))
-                        .collect(java.util.stream.Collectors.joining("; "));
-                if (!when.isBlank()) {
-                    sb.append(" (").append(when).append(")");
+                    .append(": ").append(statusLabel(row.getStatus()));
+            if (row.getOutstanding().signum() > 0) {
+                sb.append(", you owe ").append(Inr.format(row.getOutstanding()));
+                String to = row.getOwes().stream()
+                        .map(PartyOwed::getPartyName)
+                        .reduce((a, b) -> a + ", " + b).orElse("");
+                if (!to.isBlank()) {
+                    sb.append(" (").append(to).append(")");
                 }
+            } else {
+                sb.append(", settled");
             }
-            sb.append(", ").append(statusLabel(row.getStatus()))
-                    .append(", balance ").append(Inr.format(row.getHeld()))
-                    .append("\n");
+            sb.append("\n");
         }
         sb.append("Totals — received ").append(Inr.format(report.getTotals().getReceived()))
-                .append(", sent back ").append(Inr.format(report.getTotals().getSentBack()))
-                .append(", held ").append(Inr.format(report.getTotals().getHeld()))
+                .append(", sent ").append(Inr.format(report.getTotals().getSent()))
+                .append(", you owe ").append(Inr.format(report.getTotals().getOutstanding()))
                 .append("\n");
         appendFilterNote(sb, filterNote);
         sb.append("— via IPO Manager");
@@ -357,31 +489,31 @@ public class ReportService {
     }
 
     /**
-     * Compact status note for a transaction line in the WhatsApp message,
-     * e.g. " · unallocated", " · settled (refund)",
-     * " · settled (sold, P&L +₹2,500)". Empty for plain in-flight money.
+     * Compact status note for a transaction line, e.g. " · struck off
+     * (returned)", " · settled (sold, P&L +₹2,500)". Empty for open legs.
      */
-    private String txnStatusNote(Transaction t) {
-        if (t.getStatus() == null || t.getStatus() == TxnStatus.SENT) {
-            return "";
-        }
-        switch (t.getStatus()) {
-            case UNALLOCATED:
-                return " · unallocated";
-            case ALLOCATED:
-                return " · allocated";
-            case SETTLED_UNALLOCATED:
-                return " · settled (refund)";
-            case SETTLED_SOLD: {
+    private String txnStatusNote(TransactionDto t) {
+        if (t.isStruck()) {
+            if (t.getReturnOfId() != null) {
+                return " · return";
+            }
+            if ("SETTLED_SOLD".equals(t.getStatus())) {
                 String note = " · settled (sold";
                 if (t.getProfitLoss() != null) {
                     note += ", P&L " + Inr.signed(t.getProfitLoss());
                 }
                 return note + ")";
             }
-            default:
-                return "";
+            return " · returned";
         }
+        if (t.getStatus() == null || "SENT".equals(t.getStatus())) {
+            return "";
+        }
+        return switch (t.getStatus()) {
+            case "UNALLOCATED" -> " · unallocated";
+            case "ALLOCATED" -> " · allocated";
+            default -> "";
+        };
     }
 
     private String statusLabel(String status) {

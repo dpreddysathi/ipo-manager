@@ -9,11 +9,9 @@ import type {
   PersonInput,
   Transaction,
   TransactionInput,
-  TxnDirection,
   TxnMode,
-  TxnStatus,
 } from '../types';
-import { TXN_STATUS_LABELS, nowLocal, todayISO } from '../utils';
+import { formatINR, nowLocal, todayISO } from '../utils';
 import { Field, Modal } from './Modal';
 
 function usePeopleAndIpos() {
@@ -260,35 +258,44 @@ function toLocalInput(iso: string | null | undefined): string {
   )}:${p(d.getMinutes())}`;
 }
 
+const ME_VALUE = 'me';
+
+function partyLabel(id: string, people: Person[]): string {
+  if (id === ME_VALUE) return 'Me (you)';
+  return people.find((x) => String(x.id) === id)?.name ?? '…';
+}
+
+/**
+ * Records one money movement between two parties for an IPO — always
+ * person-to-person; either side may be you ("Me").
+ */
 export function TransactionModal({
   onClose,
   onSaved,
   prefill,
-  settleOriginalId,
   title,
   editTxn,
 }: {
   onClose: () => void;
   onSaved: () => void;
   prefill?: TxnPrefill;
-  /**
-   * When set, PATCH /api/transactions/{settleOriginalId}/settle is called
-   * after the new SENT txn is created (spec §4.5 settlement workflow).
-   */
-  settleOriginalId?: number;
   title?: string;
   /** When set, the modal edits this transaction instead of creating one. */
   editTxn?: Transaction;
 }) {
   const { people, ipos } = usePeopleAndIpos();
-  const [personId, setPersonId] = useState(
-    editTxn?.personId?.toString() ?? prefill?.personId?.toString() ?? '',
+  const [fromId, setFromId] = useState(
+    editTxn
+      ? (editTxn.senderId != null ? String(editTxn.senderId) : ME_VALUE)
+      : (prefill?.senderId != null ? String(prefill.senderId) : ME_VALUE),
+  );
+  const [toId, setToId] = useState(
+    editTxn
+      ? (editTxn.receiverId != null ? String(editTxn.receiverId) : ME_VALUE)
+      : (prefill?.receiverId != null ? String(prefill.receiverId) : ''),
   );
   const [ipoId, setIpoId] = useState(
     editTxn?.ipoId?.toString() ?? prefill?.ipoId?.toString() ?? '',
-  );
-  const [direction, setDirection] = useState<TxnDirection>(
-    editTxn?.direction ?? prefill?.direction ?? 'RECEIVED',
   );
   const [amount, setAmount] = useState(
     editTxn?.amount?.toString() ?? prefill?.amount?.toString() ?? '',
@@ -298,98 +305,43 @@ export function TransactionModal({
     editTxn ? toLocalInput(editTxn.date) : (prefill?.date ?? nowLocal()),
   );
   const [notes, setNotes] = useState(editTxn?.notes ?? prefill?.notes ?? '');
-  const [from, setFrom] = useState(editTxn?.sender ?? prefill?.sender ?? '');
-  const [to, setTo] = useState(editTxn?.receiver ?? prefill?.receiver ?? '');
-  const [status, setStatus] = useState<TxnStatus>(
-    editTxn?.status ?? prefill?.status ?? 'SENT',
-  );
-  const [profitLoss, setProfitLoss] = useState(
-    editTxn?.profitLoss != null ? String(editTxn.profitLoss) : '',
-  );
-  // Tracks whether the user typed their own From/To, so auto-defaults
-  // don't clobber manual entries when person/direction changes.
-  const fromTouched = React.useRef(!!(editTxn?.sender ?? prefill?.sender));
-  const toTouched = React.useRef(!!(editTxn?.receiver ?? prefill?.receiver));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  /** Previously used parties (people names + your accounts/pools),
-   *  remembered locally for quick picking. */
-  const [partyHints] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem('ipo-manager-parties');
-      const arr = raw ? (JSON.parse(raw) as unknown) : [];
-      const remembered = Array.isArray(arr)
-        ? arr.filter((x) => typeof x === 'string')
-        : [];
-      const seeds = ['HDFC pool', 'Cash'];
-      return [...seeds, ...remembered.filter((x) => !seeds.includes(x))];
-    } catch {
-      return ['HDFC pool', 'Cash'];
-    }
-  });
-
-  /** Smart defaults: RECEIVED comes from the person, goes to your account;
-   *  SENT comes from your account, goes to the person. */
-  React.useEffect(() => {
-    const person = people.find((x) => String(x.id) === personId);
-    if (direction === 'RECEIVED' && !fromTouched.current) {
-      setFrom(person?.name ?? '');
-    }
-    if (direction === 'SENT' && !toTouched.current) {
-      setTo(person?.name ?? '');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personId, direction, people]);
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!personId || !ipoId || !amount || Number(amount) <= 0) {
-      setError('Person, IPO and a positive amount are required.');
+    if (!ipoId || !amount || Number(amount) <= 0) {
+      setError('IPO and a positive amount are required.');
+      return;
+    }
+    if (!fromId || !toId) {
+      setError('Pick who sent and who received.');
+      return;
+    }
+    if (fromId === ME_VALUE && toId === ME_VALUE) {
+      setError('One side must be a person — pick who the money moved to or from.');
+      return;
+    }
+    if (fromId !== ME_VALUE && fromId === toId) {
+      setError('Sender and receiver cannot be the same person.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      const trimmedFrom = from.trim();
-      const trimmedTo = to.trim();
       const payload: TransactionInput = {
-        personId: Number(personId),
+        senderId: fromId === ME_VALUE ? null : Number(fromId),
+        receiverId: toId === ME_VALUE ? null : Number(toId),
         ipoId: Number(ipoId),
-        direction,
         amount: Number(amount),
         mode,
         date,
         notes: notes.trim() || undefined,
-        sender: trimmedFrom || undefined,
-        receiver: trimmedTo || undefined,
-        status,
-        profitLoss:
-          status === 'SETTLED_SOLD' && profitLoss !== ''
-            ? Number(profitLoss)
-            : undefined,
       };
       if (editTxn) {
         await api.updateTransaction(editTxn.id, payload);
       } else {
         await api.createTransaction(payload);
-      }
-      // Remember both ends for next time's suggestions.
-      for (const party of [trimmedFrom, trimmedTo]) {
-        if (!party) continue;
-        try {
-          const raw = localStorage.getItem('ipo-manager-parties');
-          const arr: string[] = raw ? (JSON.parse(raw) as string[]) : [];
-          const next = [party, ...arr.filter((x) => x !== party)].slice(0, 16);
-          localStorage.setItem('ipo-manager-parties', JSON.stringify(next));
-        } catch {
-          /* suggestions are best-effort */
-        }
-      }
-      // Settlement workflow: the money was sent back, so mark the
-      // original RECEIVED transaction as settled (spec §4.5).
-      if (settleOriginalId) {
-        await api.settleTransaction(settleOriginalId);
       }
       onSaved();
     } catch (err) {
@@ -399,46 +351,45 @@ export function TransactionModal({
     }
   };
 
+  const partyOptions = (value: string) => (
+    <>
+      <option value={ME_VALUE}>Me (you)</option>
+      {people.map((per) => (
+        <option key={per.id} value={per.id}>
+          {per.name}
+        </option>
+      ))}
+    </>
+  );
+
   return (
     <Modal
-      title={title ?? (editTxn ? 'Edit Transaction' : 'Record Transaction')}
+      title={title ?? (editTxn ? 'Edit Transaction' : 'Record Money Movement')}
       onClose={onClose}
     >
       <form onSubmit={submit} style={{ display: 'contents' }}>
         {error && <div className="form-error">{error}</div>}
-        {error && <div className="form-error">{error}</div>}
-        <Field label="Direction">
-          <div className="seg">
-            <button
-              type="button"
-              className={direction === 'RECEIVED' ? 'on' : ''}
-              onClick={() => setDirection('RECEIVED')}
-            >
-              ↓ Received
-            </button>
-            <button
-              type="button"
-              className={direction === 'SENT' ? 'on' : ''}
-              onClick={() => setDirection('SENT')}
-            >
-              ↑ Sent back
-            </button>
-          </div>
-        </Field>
         <div className="field-row">
-          <Field label="Person">
-            <select
-              value={personId}
-              onChange={(e) => setPersonId(e.target.value)}
-            >
-              <option value="">Select…</option>
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+          <Field label="From (sender)">
+            <select value={fromId} onChange={(e) => setFromId(e.target.value)}>
+              {partyOptions(fromId)}
             </select>
           </Field>
+          <Field label="To (receiver)">
+            <select value={toId} onChange={(e) => setToId(e.target.value)}>
+              <option value="">Select…</option>
+              {partyOptions(toId)}
+            </select>
+          </Field>
+        </div>
+        {(fromId || toId) && (
+          <div className="hint" style={{ marginTop: -4 }}>
+            {partyLabel(fromId || ME_VALUE, people)} →{' '}
+            {toId ? partyLabel(toId, people) : '…'} — the receiver owes the
+            sender until it is returned.
+          </div>
+        )}
+        <div className="field-row">
           <Field label="IPO">
             <select value={ipoId} onChange={(e) => setIpoId(e.target.value)}>
               <option value="">Select…</option>
@@ -449,8 +400,6 @@ export function TransactionModal({
               ))}
             </select>
           </Field>
-        </div>
-        <div className="field-row">
           <Field label="Amount (₹)">
             <input
               type="number"
@@ -461,6 +410,8 @@ export function TransactionModal({
               autoFocus
             />
           </Field>
+        </div>
+        <div className="field-row">
           <Field label="Date & time">
             <input
               type="datetime-local"
@@ -468,160 +419,140 @@ export function TransactionModal({
               onChange={(e) => setDate(e.target.value)}
             />
           </Field>
-        </div>
-        <Field label="Mode">
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as TxnMode)}
-          >
-            <option value="UPI">UPI</option>
-            <option value="GPAY">GPay</option>
-            <option value="CASH">Cash</option>
-            <option value="BANK">Bank transfer</option>
-            <option value="SELF">Self (own money)</option>
-          </select>
-        </Field>
-        <div className="field-row">
-          <Field label="From">
-            <input
-              list="txn-party-hints"
-              value={from}
-              onChange={(e) => {
-                fromTouched.current = true;
-                setFrom(e.target.value);
-              }}
-              placeholder={
-                direction === 'RECEIVED'
-                  ? 'Who sent it? (defaults to person)'
-                  : 'Which account sent it? e.g. HDFC pool'
-              }
-            />
-          </Field>
-          <Field label="To">
-            <input
-              list="txn-party-hints"
-              value={to}
-              onChange={(e) => {
-                toTouched.current = true;
-                setTo(e.target.value);
-              }}
-              placeholder={
-                direction === 'SENT'
-                  ? 'Who received it? (defaults to person)'
-                  : 'Which account received it? e.g. HDFC pool'
-              }
-            />
-          </Field>
-        </div>
-        <datalist id="txn-party-hints">
-          {people.map((x) => (
-            <option key={`p-${x.id}`} value={x.name} />
-          ))}
-          {partyHints.map((x) => (
-            <option key={`h-${x}`} value={x} />
-          ))}
-        </datalist>
-        <div className="field-row">
-          <Field label="Status">
+          <Field label="Mode">
             <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as TxnStatus)}
+              value={mode}
+              onChange={(e) => setMode(e.target.value as TxnMode)}
             >
-              {(Object.keys(TXN_STATUS_LABELS) as TxnStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {TXN_STATUS_LABELS[s]}
-                </option>
-              ))}
+              <option value="UPI">UPI</option>
+              <option value="GPAY">GPay</option>
+              <option value="CASH">Cash</option>
+              <option value="BANK">Bank transfer</option>
+              <option value="SELF">Self (own money)</option>
             </select>
           </Field>
-          {status === 'SETTLED_SOLD' && (
-            <Field label="Profit / Loss vs sent (₹)">
-              <input
-                type="number"
-                value={profitLoss}
-                onChange={(e) => setProfitLoss(e.target.value)}
-                placeholder="e.g. 2500 or -800"
-              />
-            </Field>
-          )}
         </div>
         <Field label="Notes (optional)">
           <input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. refund from exchange"
+            placeholder="e.g. application money"
           />
         </Field>
         <SubmitBar
           onClose={onClose}
           saving={saving}
-          label={editTxn ? 'Save Changes' : 'Save Transaction'}
+          label={editTxn ? 'Save Changes' : 'Save Movement'}
         />
       </form>
     </Modal>
   );
 }
 
-/* ---------------- Settle Choice ---------------- */
+/* ---------------- Record Return ---------------- */
 
 /**
- * Asks which kind of settlement closed the money loop: a refund after
- * non-allocation, or a post-allocation sale with profit/loss noted.
+ * One-tap return: records the money moving back to the original sender
+ * and settles the original. Non-allotted → the exact amount goes back
+ * ("Mark paid"). Allotted → enter the profit/loss; the sender receives
+ * amount + P&L.
  */
-export function SettleChoiceModal({
-  txnLabel,
+export function ReturnModal({
+  txn,
+  allotted,
   onClose,
-  onChoose,
+  onDone,
 }: {
-  txnLabel: string;
+  txn: Transaction;
+  /** Hint for the allotted toggle, e.g. from the receiver's application. */
+  allotted?: boolean;
   onClose: () => void;
-  onChoose: (input: { type: 'UNALLOCATED' | 'SOLD'; profitLoss?: number }) => void;
+  onDone: () => void;
 }) {
-  const [kind, setKind] = useState<'UNALLOCATED' | 'SOLD'>('UNALLOCATED');
+  const [isAllotted, setIsAllotted] = useState(allotted ?? false);
   const [profitLoss, setProfitLoss] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const pl = profitLoss.trim() === '' || Number.isNaN(Number(profitLoss))
+    ? null
+    : Number(profitLoss);
+  const returnAmount = txn.amount + (isAllotted && pl != null ? pl : 0);
+
+  const confirm = async () => {
+    if (isAllotted && pl == null) {
+      setError('Enter the profit or loss (0 if none, negative for a loss).');
+      return;
+    }
+    if (returnAmount <= 0) {
+      setError('The return amount must be positive — check the profit/loss.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await api.recordReturn(txn.id, isAllotted ? { profitLoss: pl } : {});
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <Modal title={`Mark settled — ${txnLabel}`} onClose={onClose}>
+    <Modal title="Record return" onClose={onClose}>
       <div style={{ display: 'grid', gap: 12 }}>
-        <label className="radio-card">
-          <input
-            type="radio"
-            checked={kind === 'UNALLOCATED'}
-            onChange={() => setKind('UNALLOCATED')}
-          />
-          <span>
-            <span className="strong">Refund — unallocated</span>
-            <br />
-            <span className="sub">
-              The IPO didn't allot; the money came back.
-            </span>
-          </span>
-        </label>
-        <label className="radio-card">
-          <input
-            type="radio"
-            checked={kind === 'SOLD'}
-            onChange={() => setKind('SOLD')}
-          />
-          <span>
-            <span className="strong">Sold — after allocation</span>
-            <br />
-            <span className="sub">
-              Allotted shares were sold; note the profit/loss vs what was
-              sent.
-            </span>
-          </span>
-        </label>
-        {kind === 'SOLD' && (
-          <Field label="Profit / Loss vs sent (₹)">
-            <input
-              type="number"
-              value={profitLoss}
-              onChange={(e) => setProfitLoss(e.target.value)}
-              placeholder="e.g. 2500 or -800"
-              autoFocus
-            />
-          </Field>
+        {error && <div className="form-error">{error}</div>}
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div className="strong">
+            {txn.receiverName} → {txn.senderName}
+          </div>
+          <div className="sub">
+            {formatINR(txn.amount)} · {txn.ipoName ?? ''} · originally{' '}
+            {txn.senderName} → {txn.receiverName}
+          </div>
+        </div>
+        <Field label="Was this application allotted?">
+          <div className="seg">
+            <button
+              type="button"
+              className={!isAllotted ? 'on' : ''}
+              onClick={() => setIsAllotted(false)}
+            >
+              Not allotted
+            </button>
+            <button
+              type="button"
+              className={isAllotted ? 'on' : ''}
+              onClick={() => setIsAllotted(true)}
+            >
+              Allotted
+            </button>
+          </div>
+        </Field>
+        {!isAllotted ? (
+          <div className="hint">
+            The full {formatINR(txn.amount)} goes back to {txn.senderName} —
+            one tap, and the original is struck off.
+          </div>
+        ) : (
+          <>
+            <Field label="Profit / loss vs sent (₹)">
+              <input
+                type="number"
+                value={profitLoss}
+                onChange={(e) => setProfitLoss(e.target.value)}
+                placeholder="e.g. 2500 or -800 (0 if none)"
+                autoFocus
+              />
+            </Field>
+            <div className="hint">
+              {txn.senderName} receives {formatINR(returnAmount)} (
+              {formatINR(txn.amount)} + P&amp;L {pl == null ? '…' : formatINR(pl)}
+              ). The P&amp;L is also noted on the application.
+            </div>
+          </>
         )}
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={onClose} type="button">
@@ -630,17 +561,10 @@ export function SettleChoiceModal({
           <button
             className="btn btn-primary"
             type="button"
-            onClick={() =>
-              onChoose({
-                type: kind,
-                profitLoss:
-                  kind === 'SOLD' && profitLoss !== ''
-                    ? Number(profitLoss)
-                    : undefined,
-              })
-            }
+            onClick={confirm}
+            disabled={saving}
           >
-            Mark settled
+            {saving ? 'Saving…' : isAllotted ? 'Record return' : 'Mark paid'}
           </button>
         </div>
       </div>

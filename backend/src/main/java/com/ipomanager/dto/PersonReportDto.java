@@ -31,7 +31,7 @@ public class PersonReportDto {
     public static class ReportTotals {
         private BigDecimal applied;
         private BigDecimal received;
-        private BigDecimal sentBack;
-        private BigDecimal held;
+        private BigDecimal sent;
+        private BigDecimal outstanding;
     }
 }

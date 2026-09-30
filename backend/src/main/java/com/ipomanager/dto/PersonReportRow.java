@@ -10,9 +10,10 @@ import java.util.List;
 
 /**
  * One row of a person report: a single IPO's money picture for one person.
- * held = received − sentBack (positive means you still hold / owe it).
- * The row also carries the person's applications for that IPO, which the
- * frontend uses to derive the allotment verdict.
+ *
+ * <p>Every movement lists who sent to whom. {@code owes} is who this
+ * person still owes (and how much); {@code owedBy} is who still owes this
+ * person. Returned legs are struck off ({@link TransactionDto#isStruck}).
  */
 @Getter
 @Setter
@@ -23,12 +24,19 @@ public class PersonReportRow {
     private Long ipoId;
     private String ipoName;
     private BigDecimal applied;
-    private BigDecimal received;
-    private BigDecimal sentBack;
-    private BigDecimal held;
     /** ALLOTTED | NOT_ALLOTTED | APPLIED | REFUNDED | NO_APPLICATION */
     private String status;
     private List<ApplicationDto> applications;
-    /** The transactions behind this row (same filters applied), newest first. */
+    /** The person's movements for this IPO (same filters applied), newest first. */
     private List<TransactionDto> transactions;
+    /** Counterparties this person still owes, with amounts. */
+    private List<PartyOwed> owes;
+    /** Counterparties that still owe this person, with amounts. */
+    private List<PartyOwed> owedBy;
+    /** Total received (as receiver) under the active filters. */
+    private BigDecimal received;
+    /** Total sent (as sender, including returns) under the active filters. */
+    private BigDecimal sent;
+    /** Total still owed by this person under the active filters. */
+    private BigDecimal outstanding;
 }

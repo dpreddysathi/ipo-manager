@@ -8,6 +8,7 @@ import type {
   DashboardStats,
   Ipo,
   IpoInput,
+  IpoSummary,
   KycInput,
   LoginInput,
   Person,
@@ -18,9 +19,9 @@ import type {
   ProfitLossReport,
   RegisterInput,
   ReportFilters,
+  ReturnInput,
   SaleInput,
   SendReportResponse,
-  SettleInput,
   Transaction,
   TransactionInput,
 } from './types';
@@ -146,6 +147,8 @@ export const api = {
   // ---- IPOs ----
   listIpos: () => get<Ipo[]>('/api/ipos'),
   getIpo: (id: number) => get<Ipo>(`/api/ipos/${id}`),
+  /** Complete picture: applications + funders, allotment counts, money ledger. */
+  getIpoSummary: (id: number) => get<IpoSummary>(`/api/ipos/${id}/summary`),
   createIpo: (data: IpoInput) => post<Ipo>('/api/ipos', data),
   updateIpo: (id: number, data: IpoInput) =>
     put<Ipo>(`/api/ipos/${id}`, data),
@@ -154,8 +157,7 @@ export const api = {
   // ---- Transactions ----
   listTransactions: (params?: {
     ipoId?: number;
-    personId?: number;
-    direction?: 'RECEIVED' | 'SENT';
+    partyId?: number;
     pendingOnly?: boolean;
   }) => get<Transaction[]>(`/api/transactions${query(params ?? {})}`),
   createTransaction: (data: TransactionInput) =>
@@ -163,12 +165,14 @@ export const api = {
   updateTransaction: (id: number, data: TransactionInput) =>
     put<Transaction>(`/api/transactions/${id}`, data),
   /**
-   * Marks a transaction settled: UNALLOCATED = refunded after
-   * non-allocation; SOLD = settled after the allotted shares were sold
-   * (optionally with the realized profit/loss vs the sent amount).
+   * One-tap return: records the money moving back to the original
+   * sender and settles the original. profitLoss null = plain return
+   * (exact amount back); set = allotted settlement (sender gets
+   * amount + P&L, noted on the receiver's application too).
    */
-  settleTransaction: (id: number, input?: SettleInput) =>
-    patch<Transaction>(`/api/transactions/${id}/settle`, input ?? {}),
+  recordReturn: (id: number, input?: ReturnInput) =>
+    post<Transaction>(`/api/transactions/${id}/return`, input ?? {}),
+  deleteTransaction: (id: number) => del(`/api/transactions/${id}`),
 
   // ---- Applications ----
   listApplications: (params?: { ipoId?: number; personId?: number }) =>

@@ -144,16 +144,15 @@ export function Dashboard() {
             to="/people"
           />
           <Stat
-            label="Pending to Collect"
-            value={formatINR(stats.pendingToCollect)}
-            sub="Expected but not yet received"
+            label="You Owe"
+            value={formatINR(stats.youOwe)}
+            sub="You must return this"
+            to="/money-flow?filter=pending"
           />
           <Stat
-            label="Pending Settlements"
-            value={`${stats.pendingSettlements.count} · ${formatINR(
-              stats.pendingSettlements.amount,
-            )}`}
-            sub="Received but not sent back yet"
+            label="Owed to You"
+            value={formatINR(stats.owedToYou)}
+            sub="Others must return this"
             to="/money-flow?filter=pending"
           />
           <Stat

@@ -17,13 +17,18 @@ public class DashboardStatsDto {
     /** IPOs with status OPEN. */
     private long activeIpos;
 
+    /** Total received by you across all debt legs. */
     private BigDecimal moneyReceived;
 
     private long peopleCount;
 
-    /** total RECEIVED − total SENT across all transactions. */
-    private BigDecimal pendingToCollect;
+    /** Outstanding: you still owe other people. */
+    private BigDecimal youOwe;
 
+    /** Outstanding: other people still owe you. */
+    private BigDecimal owedToYou;
+
+    /** Outstanding person-to-person debts where you are neither side. */
     private PendingSettlements pendingSettlements;
 
     /** ALLOTTED ÷ total applications created this year, 0–100 (0 if none). */

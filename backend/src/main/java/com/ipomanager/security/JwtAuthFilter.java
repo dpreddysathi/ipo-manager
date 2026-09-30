@@ -40,15 +40,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
+            final Long userId;
             try {
-                Long userId = jwtService.parseUserId(header.substring(7).trim());
-                request.setAttribute(AuthContext.USER_ID_ATTR, userId);
-                chain.doFilter(request, response);
-                return;
+                userId = jwtService.parseUserId(header.substring(7).trim());
             } catch (Exception e) {
-                // Bad signature / expired / malformed — fall through to 401.
+                // Bad signature / expired / malformed token.
+                writeUnauthorized(response);
+                return;
             }
+            request.setAttribute(AuthContext.USER_ID_ATTR, userId);
+            // Downstream exceptions propagate normally — they are not
+            // authentication failures and must not be masked as 401.
+            chain.doFilter(request, response);
+            return;
         }
+        writeUnauthorized(response);
+    }
+
+    private static void writeUnauthorized(HttpServletResponse response)
+            throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         response.getWriter().write("{\"error\":\"unauthorized: login required\"}");

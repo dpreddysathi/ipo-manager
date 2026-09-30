@@ -14,8 +14,14 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class TransactionRequest {
 
-    @NotNull(message = "personId is required")
-    private Long personId;
+    /**
+     * Who sends the money — a person id, or null for you ("Me").
+     * At least one of senderId / receiverId must be a real person.
+     */
+    private Long senderId;
+
+    /** Who receives the money — a person id, or null for you ("Me"). */
+    private Long receiverId;
 
     @NotNull(message = "ipoId is required")
     private Long ipoId;
@@ -24,9 +30,6 @@ public class TransactionRequest {
     @Positive(message = "amount must be positive")
     private BigDecimal amount;
 
-    @NotNull(message = "direction is required")
-    private String direction; // RECEIVED | SENT
-
     @NotNull(message = "mode is required")
     private String mode; // UPI | GPAY | CASH | BANK | SELF
 
@@ -34,28 +37,4 @@ public class TransactionRequest {
     private LocalDateTime date;
 
     private String notes;
-
-    /**
-     * Who the money came from (free text, e.g. "HDFC ****1234", "Cash").
-     * Optional — for RECEIVED it defaults to the person's name.
-     */
-    private String sender;
-
-    /**
-     * Who the money went to (free text, e.g. "HDFC pool").
-     * Optional — for SENT it defaults to the person's name.
-     */
-    private String receiver;
-
-    /**
-     * Lifecycle status: SENT | UNALLOCATED | ALLOCATED |
-     * SETTLED_UNALLOCATED | SETTLED_SOLD. Optional — defaults to SENT.
-     */
-    private String status;
-
-    /**
-     * Realized profit (+) / loss (−) versus the sent amount. Only
-     * meaningful with status SETTLED_SOLD.
-     */
-    private BigDecimal profitLoss;
 }

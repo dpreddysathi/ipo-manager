@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useDrawer } from '../drawer';
-import type { Person, SettleInput, Transaction } from '../types';
+import type { Application, Person, Transaction } from '../types';
 import {
   MODE_ICONS,
   MODE_LABELS,
@@ -14,7 +14,7 @@ import {
   pillClassForTxnStatus,
 } from '../utils';
 import {
-  SettleChoiceModal,
+  ReturnModal,
   TransactionModal,
   type TxnPrefill,
 } from '../components/Modals';
@@ -22,6 +22,7 @@ import {
 export function MoneyFlow() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [txns, setTxns] = useState<Transaction[]>([]);
+  const [apps, setApps] = useState<Application[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,23 +30,26 @@ export function MoneyFlow() {
 
   const pendingOnly = searchParams.get('filter') === 'pending';
 
-  // Send-back flow: prefilled SENT txn + settle the original on save.
-  const [sendBack, setSendBack] = useState<{
-    prefill: TxnPrefill;
-    settleId: number;
-  } | null>(null);
+  // One-tap return on an open leg.
+  const [returnTxn, setReturnTxn] = useState<Transaction | null>(null);
 
-  // "Mark settled" choice: refund (unallocated) vs sold (profit/loss).
-  const [settleChoice, setSettleChoice] = useState<Transaction | null>(null);
+  // Plain record-money flow.
+  const [showTxn, setShowTxn] = useState(false);
+  const [txnPrefill, setTxnPrefill] = useState<TxnPrefill | undefined>();
 
   // Edit flow: reuse the transaction modal in edit mode.
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([api.listTransactions(), api.listPeople()])
-      .then(([t, p]) => {
+    Promise.all([
+      api.listTransactions(),
+      api.listApplications(),
+      api.listPeople(),
+    ])
+      .then(([t, a, p]) => {
         setTxns(t);
+        setApps(a);
         setPeople(p);
       })
       .catch((e) =>
@@ -56,66 +60,47 @@ export function MoneyFlow() {
 
   useEffect(load, []);
 
-  const personName = useCallback(
-    (t: Transaction) =>
-      t.personName ??
-      people.find((p) => p.id === t.personId)?.name ??
-      `Person #${t.personId}`,
+  const partyName = useCallback(
+    (pid: number | null, fallback?: string) =>
+      pid == null
+        ? 'Me'
+        : (fallback ??
+          people.find((p) => p.id === pid)?.name ??
+          `Person #${pid}`),
     [people],
   );
 
-  /** "Who sent whom": sender → receiver for a transaction. */
-  const route = useCallback(
-    (t: Transaction) => {
-      const from =
-        t.sender?.trim() ||
-        (t.direction === 'RECEIVED' ? personName(t) : 'Me');
-      const to =
-        t.receiver?.trim() ||
-        (t.direction === 'RECEIVED' ? 'Me' : personName(t));
-      return { from, to };
+  const openPerson = useCallback(
+    (pid: number | null, ipoId?: number) => {
+      if (pid == null) return;
+      openDrawer({ personId: pid, ipoId });
     },
-    [personName],
+    [openDrawer],
+  );
+
+  const isOpen = useCallback(
+    (t: Transaction) =>
+      (t.outstanding ?? 0) > 0 && !t.settled && t.returnOfId == null,
+    [],
   );
 
   const rows = useMemo(() => {
     const sorted = [...txns].sort((a, b) => b.date.localeCompare(a.date));
-    return pendingOnly
-      ? sorted.filter((t) => t.direction === 'RECEIVED' && !t.settled)
-      : sorted;
-  }, [txns, pendingOnly]);
+    return pendingOnly ? sorted.filter(isOpen) : sorted;
+  }, [txns, pendingOnly, isOpen]);
 
-  const pendingCount = useMemo(
-    () => txns.filter((t) => t.direction === 'RECEIVED' && !t.settled).length,
-    [txns],
+  const pendingCount = useMemo(() => txns.filter(isOpen).length, [txns, isOpen]);
+
+  const allottedHint = useCallback(
+    (t: Transaction): boolean | undefined => {
+      if (t.receiverId == null) return undefined;
+      const app = apps.find(
+        (a) => a.personId === t.receiverId && a.ipoId === t.ipoId,
+      );
+      return app ? app.status === 'ALLOTTED' : undefined;
+    },
+    [apps],
   );
-
-  const openSendBack = (t: Transaction) => {
-    setSendBack({
-      prefill: {
-        personId: t.personId,
-        ipoId: t.ipoId,
-        direction: 'SENT',
-        amount: t.amount,
-        mode: 'UPI',
-        date: nowLocal(),
-        notes: `Sent back (settles txn #${t.id})`,
-      },
-      settleId: t.id,
-    });
-  };
-
-  /** Mark a transaction settled — the choice modal decides whether it
-   *  was a refund (unallocated) or a post-allocation sale (profit/loss). */
-  const markSettled = async (id: number, input: SettleInput) => {
-    try {
-      await api.settleTransaction(id, input);
-      setSettleChoice(null);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not mark settled.');
-    }
-  };
 
   return (
     <div>
@@ -123,14 +108,23 @@ export function MoneyFlow() {
         <div>
           <h1>Money Flow</h1>
           <p className="sub">
-            Every rupee in and out.{' '}
+            Every rupee, sender → receiver.{' '}
             {pendingCount > 0 && (
               <span className="pill pill-amber" style={{ marginLeft: 6 }}>
-                {pendingCount} pending settlement{pendingCount !== 1 && 's'}
+                {pendingCount} open leg{pendingCount !== 1 && 's'}
               </span>
             )}
           </p>
         </div>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            setTxnPrefill({ date: nowLocal() });
+            setShowTxn(true);
+          }}
+        >
+          + Record Movement
+        </button>
       </div>
 
       <div className="toolbar">
@@ -142,7 +136,7 @@ export function MoneyFlow() {
               setSearchParams(e.target.checked ? { filter: 'pending' } : {})
             }
           />
-          Pending settlements only
+          Open legs only
         </label>
       </div>
 
@@ -155,55 +149,60 @@ export function MoneyFlow() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Person</th>
                   <th>From → To</th>
                   <th>IPO</th>
-                  <th>Direction</th>
                   <th className="num">Amount</th>
+                  <th className="num">Outstanding</th>
                   <th>Mode</th>
                   <th>Date</th>
-                  <th>Settlement</th>
+                  <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((t) => (
-                  <tr key={t.id}>
+                  <tr key={t.id} className={t.struck ? 'struck-row' : ''}>
                     <td>
                       <button
-                        className="person-link"
-                        onClick={() =>
-                          openDrawer({ personId: t.personId, ipoId: t.ipoId })
+                        className="party-link"
+                        onClick={() => openPerson(t.senderId, t.ipoId)}
+                        disabled={t.senderId == null}
+                        style={
+                          t.senderId == null
+                            ? { color: 'inherit', cursor: 'default' }
+                            : undefined
                         }
                       >
-                        {personName(t)}
+                        {partyName(t.senderId, t.senderName)}
                       </button>
-                    </td>
-                    <td>
-                      {(() => {
-                        const r = route(t);
-                        return (
-                          <span className="route">
-                            <span className="route-from">{r.from}</span>
-                            <span className="route-arrow"> → </span>
-                            <span className="route-to">{r.to}</span>
-                          </span>
-                        );
-                      })()}
+                      <span aria-hidden> → </span>
+                      <button
+                        className="party-link"
+                        onClick={() => openPerson(t.receiverId, t.ipoId)}
+                        disabled={t.receiverId == null}
+                        style={
+                          t.receiverId == null
+                            ? { color: 'inherit', cursor: 'default' }
+                            : undefined
+                        }
+                      >
+                        {partyName(t.receiverId, t.receiverName)}
+                      </button>
+                      {t.returnOfId != null && (
+                        <span className="sub"> · return</span>
+                      )}
                     </td>
                     <td>{t.ipoName ?? `IPO #${t.ipoId}`}</td>
-                    <td>
-                      <span
-                        className={
-                          t.direction === 'RECEIVED'
-                            ? 'pill pill-green'
-                            : 'pill pill-blue'
-                        }
-                      >
-                        {t.direction === 'RECEIVED' ? '↓ Received' : '↑ Sent'}
-                      </span>
-                    </td>
                     <td className="num strong">{formatINR(t.amount)}</td>
+                    <td className="num">
+                      {(t.outstanding ?? 0) > 0 ? (
+                        <strong style={{ color: 'var(--amber)' }}>
+                          {formatINR(t.outstanding ?? 0)}
+                        </strong>
+                      ) : (
+                        <span className="sub">—</span>
+                      )}
+                    </td>
                     <td className="mode-cell">
                       <span className="mode-icon">{MODE_ICONS[t.mode]}</span>
                       {MODE_LABELS[t.mode]}
@@ -226,40 +225,34 @@ export function MoneyFlow() {
                         </div>
                       )}
                     </td>
-                    <td>
-                      {t.direction === 'RECEIVED' && !t.settled && (
-                        <>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={() => openSendBack(t)}
-                          >
-                            Send Back
-                          </button>{' '}
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            title="Mark settled: refund (unallocated) or sold (profit/loss)"
-                            onClick={() => setSettleChoice(t)}
-                          >
-                            Mark settled
-                          </button>{' '}
-                        </>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {isOpen(t) && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => setReturnTxn(t)}
+                          style={{ marginRight: 6 }}
+                        >
+                          Return
+                        </button>
                       )}
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        title="Edit this transaction"
-                        onClick={() => setEditTxn(t)}
-                      >
-                        Edit
-                      </button>
+                      {t.returnOfId == null && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          title="Edit this movement"
+                          onClick={() => setEditTxn(t)}
+                        >
+                          Edit
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="empty">
+                    <td colSpan={8} className="empty">
                       {pendingOnly
-                        ? '🎉 Nothing pending — every received amount has been settled.'
-                        : 'No transactions recorded yet.'}
+                        ? '🎉 Nothing open — every leg has been returned.'
+                        : 'No movements recorded yet.'}
                     </td>
                   </tr>
                 )}
@@ -269,11 +262,15 @@ export function MoneyFlow() {
         </div>
       )}
 
-      {settleChoice && (
-        <SettleChoiceModal
-          txnLabel={`${formatINR(settleChoice.amount)} · ${personName(settleChoice)}`}
-          onClose={() => setSettleChoice(null)}
-          onChoose={(input) => void markSettled(settleChoice.id, input)}
+      {returnTxn && (
+        <ReturnModal
+          txn={returnTxn}
+          allotted={allottedHint(returnTxn)}
+          onClose={() => setReturnTxn(null)}
+          onDone={() => {
+            setReturnTxn(null);
+            load();
+          }}
         />
       )}
 
@@ -288,14 +285,17 @@ export function MoneyFlow() {
         />
       )}
 
-      {sendBack && (
+      {showTxn && (
         <TransactionModal
-          title={`Send Back — ${formatINR(sendBack.prefill.amount ?? 0)}`}
-          prefill={sendBack.prefill}
-          settleOriginalId={sendBack.settleId}
-          onClose={() => setSendBack(null)}
+          title="Record Money Movement"
+          prefill={txnPrefill}
+          onClose={() => {
+            setShowTxn(false);
+            setTxnPrefill(undefined);
+          }}
           onSaved={() => {
-            setSendBack(null);
+            setShowTxn(false);
+            setTxnPrefill(undefined);
             load();
           }}
         />

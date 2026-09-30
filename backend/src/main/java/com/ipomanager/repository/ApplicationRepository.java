@@ -22,6 +22,11 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
     List<Application> findByPersonIdAndIpoId(Long personId, Long ipoId);
 
+    @Query("select a from Application a where a.ownerId = :ownerId "
+            + "and a.ipo.id = :ipoId")
+    List<Application> findByIpo(@Param("ownerId") Long ownerId,
+                               @Param("ipoId") Long ipoId);
+
     @Query("select coalesce(sum(a.appliedAmount), 0) from Application a "
             + "where a.person.id = :personId and a.ipo.id = :ipoId")
     BigDecimal sumAppliedByPersonAndIpo(@Param("personId") Long personId,

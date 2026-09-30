@@ -10,7 +10,6 @@ import com.ipomanager.model.ApplicationStatus;
 import com.ipomanager.model.Ipo;
 import com.ipomanager.model.Person;
 import com.ipomanager.model.Transaction;
-import com.ipomanager.model.TxnDirection;
 import com.ipomanager.model.TxnStatus;
 import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
@@ -63,9 +62,15 @@ public class ApplicationController {
 
     @PostMapping
     public ResponseEntity<ApplicationDto> create(@Valid @RequestBody ApplicationRequest req) {
+        Long userId = AuthContext.currentUserId();
+        if (!applicationRepository
+                .findByPersonIdAndIpoId(req.getPersonId(), req.getIpoId()).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "This person already has an application for this IPO");
+        }
         Application app = new Application();
         apply(req, app);
-        app.setOwnerId(AuthContext.currentUserId());
+        app.setOwnerId(userId);
         if (req.getStatus() != null) {
             setStatus(app, parseStatus(req.getStatus()));
         }
@@ -111,6 +116,11 @@ public class ApplicationController {
     /**
      * Records the sale of allotted shares: the realized profit (positive)
      * or loss (negative) and when the sale happened (defaults to now).
+     *
+     * <p>This is pure P&L bookkeeping — it does not move money. The debt
+     * is cleared only when the return is recorded via
+     * {@code POST /api/transactions/{id}/return}, which also accumulates
+     * the P&L here automatically.
      */
     @PatchMapping("/{id}/sale")
     public ApplicationDto recordSale(@PathVariable Long id,
@@ -118,26 +128,7 @@ public class ApplicationController {
         Application app = owned(id);
         app.setProfitLoss(req.getProfitLoss());
         app.setSoldAt(req.getSoldAt() != null ? req.getSoldAt() : LocalDateTime.now());
-        ApplicationDto dto = ApplicationDto.from(applicationRepository.save(app));
-
-        // Smart close-out: money still held for this person + IPO is now
-        // settled by the sale. When there is exactly one open RECEIVED
-        // transaction the realized P&L is unambiguous, so it is noted on
-        // the transaction itself; otherwise the status is settled and the
-        // P&L can be split by editing the transactions.
-        List<Transaction> open = transactionRepository
-                .findByPersonIdAndIpoId(
-                        app.getPerson().getId(), app.getIpo().getId())
-                .stream()
-                .filter(t -> t.getDirection() == TxnDirection.RECEIVED
-                        && !t.isSettled())
-                .toList();
-        for (Transaction t : open) {
-            t.settleAs(TxnStatus.SETTLED_SOLD,
-                    open.size() == 1 ? req.getProfitLoss() : null);
-            transactionRepository.save(t);
-        }
-        return dto;
+        return ApplicationDto.from(applicationRepository.save(app));
     }
 
     private void setStatus(Application app, ApplicationStatus status) {
@@ -145,6 +136,24 @@ public class ApplicationController {
         if (status == ApplicationStatus.ALLOTTED || status == ApplicationStatus.NOT_ALLOTTED) {
             app.setAllottedBy("You");
             app.setAllottedAt(LocalDateTime.now());
+            // Keep the money lifecycle in sync: open debt legs funding
+            // this person's application follow the allotment outcome.
+            TxnStatus txnStatus = status == ApplicationStatus.ALLOTTED
+                    ? TxnStatus.ALLOCATED : TxnStatus.UNALLOCATED;
+            for (Transaction t : transactionRepository.findByOwnerId(
+                    AuthContext.currentUserId())) {
+                if (t.isSettled() || t.getReturnOf() != null
+                        || t.getStatus() != TxnStatus.SENT) {
+                    continue;
+                }
+                if (t.getReceiverPerson() != null
+                        && t.getReceiverPerson().getId()
+                                .equals(app.getPerson().getId())
+                        && t.getIpo().getId().equals(app.getIpo().getId())) {
+                    t.setStatus(txnStatus);
+                    transactionRepository.save(t);
+                }
+            }
         }
     }
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useDrawer } from '../drawer';
-import type { Ipo, Person, PersonKyc, PersonReport, ReportFilters, ReportIpoRow } from '../types';
+import type { Ipo, Person, PersonKyc, PersonReport, PartyOwed, ReportFilters, ReportIpoRow, Transaction } from '../types';
 import {
+  APP_STATUS_LABELS,
   MODE_ICONS,
   MODE_LABELS,
   TXN_STATUS_LABELS,
@@ -10,10 +11,11 @@ import {
   formatINR,
   formatSignedINR,
   initials,
+  pillClassForAppStatus,
   pillClassForTxnStatus,
 } from '../utils';
 import { MaskedField } from './MaskedField';
-import { PersonModal } from './Modals';
+import { PersonModal, ReturnModal } from './Modals';
 
 type VerdictKind = 'green' | 'amber' | 'blue';
 
@@ -22,20 +24,20 @@ function verdictForRow(row: ReportIpoRow, personName: string): {
   text: string;
 } {
   const firstName = personName.split(' ')[0];
+  if (row.owes.length > 0) {
+    const parts = row.owes
+      .map((o) => `${o.partyName} ${formatINR(o.amount)}`)
+      .join(', ');
+    return { kind: 'amber', text: `${firstName} owes ${parts}` };
+  }
   const allotted = row.applications.some((a) => a.status === 'ALLOTTED');
   if (allotted) {
     return {
       kind: 'blue',
-      text: `Shares allotted — nothing owed in cash.`,
+      text: `Shares allotted — cash debt clears only when money is returned.`,
     };
   }
-  if (row.held > 0) {
-    return {
-      kind: 'amber',
-      text: `You owe ${firstName} ${formatINR(row.held)}`,
-    };
-  }
-  return { kind: 'green', text: 'Nothing owed — all settled.' };
+  return { kind: 'green', text: 'No outstanding cash obligation in this ledger.' };
 }
 
 function statusPill(status: string): string {
@@ -276,8 +278,125 @@ function KycSection({ personId }: { personId: number }) {
   );
 }
 
+
+/** Tappable counterparty name — opens their report. "Me" is plain text. */
+function PartyName({
+  id,
+  name,
+  ipoId,
+  onOpen,
+}: {
+  id: number | null;
+  name: string;
+  ipoId?: number;
+  onOpen: (partyId: number | null, ipoId?: number) => void;
+}) {
+  if (id == null) return <span>{name}</span>;
+  return (
+    <button
+      type="button"
+      className="party-link"
+      onClick={() => onOpen(id, ipoId)}
+      title={`Open ${name}'s report`}
+    >
+      {name}
+    </button>
+  );
+}
+
+function TxnRow({
+  t,
+  ipoId,
+  onOpenParty,
+  onReturn,
+}: {
+  t: Transaction;
+  ipoId: number;
+  onOpenParty: (partyId: number | null, ipoId?: number) => void;
+  onReturn: (t: Transaction) => void;
+}) {
+  const open = (t.outstanding ?? 0) > 0 && !t.settled && t.returnOfId == null;
+  return (
+    <div className={`txn-row${t.struck ? ' struck' : ''}`}>
+      <div className="txn-main">
+        <PartyName id={t.senderId} name={t.senderName} ipoId={ipoId} onOpen={onOpenParty} />
+        <span aria-hidden>→</span>
+        <PartyName id={t.receiverId} name={t.receiverName} ipoId={ipoId} onOpen={onOpenParty} />
+        <span className="num strong">{formatINR(t.amount)}</span>
+      </div>
+      <div className="txn-sub">
+        <span>{formatDateTime(t.date)}</span>
+        <span>· {MODE_LABELS[t.mode]}</span>
+        <span className={pillClassForTxnStatus(t.status)}>
+          {TXN_STATUS_LABELS[t.status] ?? t.status}
+        </span>
+        {t.returnOfId != null && <span>· return</span>}
+        {t.status === 'SETTLED_SOLD' && t.profitLoss != null && (
+          <span
+            style={{
+              color: t.profitLoss >= 0 ? 'var(--green)' : 'var(--red)',
+              fontWeight: 600,
+            }}
+          >
+            P&L {formatSignedINR(t.profitLoss)}
+          </span>
+        )}
+      </div>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => onReturn(t)}
+          >
+            Record return
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OwesCard({
+  title,
+  rows,
+  personName,
+  ipoId,
+  onOpenParty,
+  tone,
+}: {
+  title: string;
+  rows: PartyOwed[];
+  personName: string;
+  ipoId: number;
+  onOpenParty: (partyId: number | null, ipoId?: number) => void;
+  tone: 'amber' | 'green';
+}) {
+  if (rows.length === 0) return null;
+  const firstName = personName.split(' ')[0];
+  return (
+    <div
+      className="card owes-card"
+      style={{
+        borderLeft: `4px solid var(--${tone})`,
+      }}
+    >
+      <div className="strong" style={{ marginBottom: 2 }}>{title}</div>
+      {rows.map((o, i) => (
+        <div className="owes-row" key={`${o.partyId}-${i}`}>
+          <span>
+            {tone === 'amber' ? `${firstName} owes ` : `${firstName} is owed by `}
+            <PartyName id={o.partyId} name={o.partyName} ipoId={ipoId} onOpen={onOpenParty} />
+          </span>
+          <span className="num strong">{formatINR(o.amount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function PersonDrawer() {
-  const { selection, visible, closeDrawer } = useDrawer();
+  const { selection, visible, closeDrawer, openDrawer } = useDrawer();
   const [report, setReport] = useState<PersonReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -289,6 +408,11 @@ export function PersonDrawer() {
   const [filters, setFilters] = useState<ReportFilters>({});
   /** Edit-person modal (name/phone/notes) from the drawer header. */
   const [editPerson, setEditPerson] = useState<Person | null>(null);
+  /** One-tap return on an open leg from this person's report. */
+  const [returnTxn, setReturnTxn] = useState<{
+    txn: Transaction;
+    row: ReportIpoRow;
+  } | null>(null);
 
   const loadReport = (personId: number, f: ReportFilters) => {
     setLoading(true);
@@ -379,6 +503,14 @@ export function PersonDrawer() {
     }
   };
 
+  const openParty = useCallback(
+    (partyId: number | null, ipoId?: number) => {
+      if (partyId == null) return;
+      openDrawer({ personId: partyId, ipoId });
+    },
+    [openDrawer],
+  );
+
   const scopedRow: ReportIpoRow | undefined = scoped
     ? report?.ipos[0]
     : undefined;
@@ -429,187 +561,129 @@ export function PersonDrawer() {
 
           {report && (
             <>
-              {/* Verdict — largest text in the drawer (spec §5) */}
-              {scoped && scopedVerdict && scopedRow ? (
-                <div
-                  className={`verdict verdict-${scopedVerdict.kind}`}
-                >
-                  Applied {formatINR(scopedRow.applied)} ·{' '}
-                  {scopedRow.status} · {scopedVerdict.text}
-                </div>
-              ) : (
-                <div className="stats-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-                  <div className="card" style={{ padding: 12 }}>
-                    <div className="stat-label">Received</div>
-                    <div className="stat-value" style={{ fontSize: '1.15rem' }}>
-                      {formatINR(report.totals.received)}
-                    </div>
-                  </div>
-                  <div className="card" style={{ padding: 12 }}>
-                    <div className="stat-label">Sent back</div>
-                    <div className="stat-value" style={{ fontSize: '1.15rem' }}>
-                      {formatINR(report.totals.sentBack)}
-                    </div>
-                  </div>
-                  <div className="card" style={{ padding: 12 }}>
-                    <div className="stat-label">Held / owed</div>
-                    <div
-                      className="stat-value"
-                      style={{
-                        fontSize: '1.15rem',
-                        color:
-                          report.totals.held > 0
-                            ? 'var(--amber)'
-                            : 'var(--green)',
-                      }}
-                    >
-                      {formatINR(report.totals.held)}
-                    </div>
+              {/* Verdict — largest text in the drawer */}
+            {scoped && scopedRow && scopedVerdict ? (
+              <div className={`verdict verdict-${scopedVerdict.kind}`}>
+                {scopedVerdict.text}
+              </div>
+            ) : (
+              <div
+                className="stats-grid"
+                style={{ gridTemplateColumns: '1fr 1fr 1fr' }}
+              >
+                <div className="stat-card">
+                  <div className="stat-label">Received</div>
+                  <div className="stat-value">
+                    {formatINR(report.totals.received)}
                   </div>
                 </div>
-              )}
-
-              <div className="drawer-section">
-                <h3>{scoped ? 'This IPO' : 'IPOs'}</h3>
-                <div className="card" style={{ padding: 0 }}>
-                  <div className="table-wrap">
-                    <table className="tbl">
-                      <thead>
-                        <tr>
-                          <th>IPO</th>
-                          <th className="num">Applied</th>
-                          <th className="num">Received</th>
-                          <th className="num">Sent back</th>
-                          <th className="num">Held / owed</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.ipos.map((row) => {
-                          const v = verdictForRow(row, report.person.name);
-                          return (
-                            <tr key={row.ipoId}>
-                              <td>
-                                <div className="strong">{row.ipoName}</div>
-                                {!scoped && (
-                                  <div
-                                    style={{
-                                      fontSize: '0.8rem',
-                                      marginTop: 4,
-                                      color: `var(--${v.kind === 'green' ? 'green' : v.kind === 'amber' ? 'amber' : 'blue'})`,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    {v.text}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="num">{formatINR(row.applied)}</td>
-                              <td className="num">{formatINR(row.received)}</td>
-                              <td className="num">{formatINR(row.sentBack)}</td>
-                              <td className="num strong">
-                                {formatINR(row.held)}
-                              </td>
-                              <td>
-                                <span className={statusPill(row.status)}>
-                                  {row.status.replace(/_/g, ' ')}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {report.ipos.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="empty">
-                              No IPO activity for this person yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                <div className="stat-card">
+                  <div className="stat-label">Sent</div>
+                  <div className="stat-value">
+                    {formatINR(report.totals.sent)}
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Owes</div>
+                  <div className="stat-value">
+                    {formatINR(report.totals.outstanding)}
                   </div>
                 </div>
               </div>
+            )}
 
-              <div className="drawer-section">
-                <h3>Transactions</h3>
-                {report.ipos.every((r) => (r.transactions ?? []).length === 0) ? (
-                  <div className="card empty">
-                    No transactions match the current filters.
+            {/* Per-IPO ledger */}
+            {(scoped && scopedRow ? [scopedRow] : report.ipos).map((row) => (
+              <div className="drawer-section" key={row.ipoId}>
+                <h3>
+                  {row.ipoName}{' '}
+                  {!scoped && (
+                    <button
+                      type="button"
+                      className="party-link"
+                      onClick={() => applyFilters({ ipoId: row.ipoId })}
+                    >
+                      view →
+                    </button>
+                  )}
+                </h3>
+                <OwesCard
+                  title="Owes"
+                  rows={row.owes}
+                  personName={report.person.name}
+                  ipoId={row.ipoId}
+                  onOpenParty={openParty}
+                  tone="amber"
+                />
+                <OwesCard
+                  title="Owed to them"
+                  rows={row.owedBy}
+                  personName={report.person.name}
+                  ipoId={row.ipoId}
+                  onOpenParty={openParty}
+                  tone="green"
+                />
+                {row.transactions.length > 0 ? (
+                  <div className="card" style={{ padding: 0, marginBottom: 8 }}>
+                    {row.transactions.map((t) => (
+                      <TxnRow
+                        key={t.id}
+                        t={t}
+                        ipoId={row.ipoId}
+                        onOpenParty={openParty}
+                        onReturn={(txn) => setReturnTxn({ txn, row })}
+                      />
+                    ))}
                   </div>
                 ) : (
-                  report.ipos
-                    .filter((r) => (r.transactions ?? []).length > 0)
-                    .map((row) => (
-                      <div key={row.ipoId} style={{ marginBottom: 12 }}>
-                        <div className="strong" style={{ marginBottom: 6 }}>
-                          {row.ipoName}
-                        </div>
-                        <div className="card" style={{ padding: 0 }}>
-                          <div className="table-wrap">
-                            <table className="tbl">
-                              <tbody>
-                                {(row.transactions ?? []).map((t) => (
-                                  <tr key={t.id}>
-                                    <td>{formatDateTime(t.date)}</td>
-                                    <td>
-                                      <span
-                                        className={
-                                          t.direction === 'RECEIVED'
-                                            ? 'pill pill-green'
-                                            : 'pill pill-blue'
-                                        }
-                                      >
-                                        {t.direction === 'RECEIVED'
-                                          ? '↓ Received'
-                                          : '↑ Sent back'}
-                                      </span>
-                                    </td>
-                                    <td className="num strong">
-                                      {formatINR(t.amount)}
-                                    </td>
-                                    <td className="mode-cell">
-                                      <span className="mode-icon">
-                                        {MODE_ICONS[t.mode]}
-                                      </span>
-                                      {MODE_LABELS[t.mode]}
-                                    </td>
-                                    <td>
-                                      <span
-                                        className={pillClassForTxnStatus(
-                                          t.status,
-                                        )}
-                                      >
-                                        {TXN_STATUS_LABELS[t.status] ?? t.status}
-                                      </span>
-                                      {t.status === 'SETTLED_SOLD' &&
-                                        t.profitLoss != null && (
-                                          <div
-                                            className="sub"
-                                            style={{
-                                              color:
-                                                t.profitLoss >= 0
-                                                  ? 'var(--green)'
-                                                  : 'var(--red)',
-                                              fontWeight: 600,
-                                            }}
-                                          >
-                                            P&L {formatSignedINR(t.profitLoss)}
-                                          </div>
-                                        )}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
+                  <div className="empty">
+                    No money movements match the filters.
+                  </div>
+                )}
+                {row.applications.length > 0 && (
+                  <div className="card" style={{ padding: '10px 14px' }}>
+                    <div className="strong" style={{ marginBottom: 6 }}>
+                      Applications
+                    </div>
+                    {row.applications.map((a) => (
+                      <div
+                        key={a.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 0',
+                          fontSize: '0.9rem',
+                        }}
+                      >
+                        <span className="num">{formatINR(a.amount)}</span>
+                        <span className={pillClassForAppStatus(a.status)}>
+                          {APP_STATUS_LABELS[a.status] ?? a.status}
+                        </span>
+                        {a.profitLoss != null && (
+                          <span
+                            style={{
+                              color:
+                                a.profitLoss >= 0
+                                  ? 'var(--green)'
+                                  : 'var(--red)',
+                              fontWeight: 600,
+                            }}
+                          >
+                            P&L {formatSignedINR(a.profitLoss)}
+                          </span>
+                        )}
+                        <span className="sub">
+                          {a.appliedDate ?? ''}
+                        </span>
                       </div>
-                    ))
+                    ))}
+                  </div>
                 )}
               </div>
+            ))}
 
-              <KycSection personId={report.person.id} />
+<KycSection personId={report.person.id} />
 
               <div className="drawer-section">
                 <h3>Report options</h3>
@@ -728,6 +802,21 @@ export function PersonDrawer() {
           onClose={() => setEditPerson(null)}
           onSaved={() => {
             setEditPerson(null);
+            if (selection) loadReport(selection.personId, filters);
+          }}
+        />
+      )}
+      {returnTxn && report && (
+        <ReturnModal
+          txn={returnTxn.txn}
+          allotted={
+            returnTxn.txn.receiverId === report.person.id
+              ? returnTxn.row.applications.some((a) => a.status === 'ALLOTTED')
+              : undefined
+          }
+          onClose={() => setReturnTxn(null)}
+          onDone={() => {
+            setReturnTxn(null);
             if (selection) loadReport(selection.personId, filters);
           }}
         />

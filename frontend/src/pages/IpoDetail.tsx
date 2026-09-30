@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useDrawer } from '../drawer';
@@ -6,6 +6,8 @@ import type {
   Application,
   AppStatus,
   Ipo,
+  IpoDebt,
+  IpoSummary,
   Person,
   Transaction,
 } from '../types';
@@ -27,6 +29,7 @@ import {
 import {
   ApplicationModal,
   IpoModal,
+  ReturnModal,
   SaleModal,
   TransactionModal,
   type TxnPrefill,
@@ -41,23 +44,23 @@ export function IpoDetail() {
   const { openDrawer } = useDrawer();
 
   const [ipo, setIpo] = useState<Ipo | null>(null);
-  const [txns, setTxns] = useState<Transaction[]>([]);
+  const [summary, setSummary] = useState<IpoSummary | null>(null);
   const [apps, setApps] = useState<Application[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('money');
-  const [groupByPerson, setGroupByPerson] = useState(false);
 
   const [showTxn, setShowTxn] = useState(false);
   const [txnPrefill, setTxnPrefill] = useState<TxnPrefill | undefined>();
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
+  const [returnTxn, setReturnTxn] = useState<Transaction | null>(null);
   const [showApp, setShowApp] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
 
-  // Inline "Refund amount?" prompt after marking Not Allotted (spec §4.2)
-  const [refundFor, setRefundFor] = useState<Application | null>(null);
-  const [refundAmt, setRefundAmt] = useState('');
+  // After marking Not Allotted, offer one-tap returns on that person's
+  // still-open legs (money is owed until it is actually returned).
+  const [refundApp, setRefundApp] = useState<Application | null>(null);
 
   // Record-sale modal for allotted applications (profit/loss)
   const [saleFor, setSaleFor] = useState<Application | null>(null);
@@ -67,13 +70,13 @@ export function IpoDetail() {
     setLoading(true);
     Promise.all([
       api.getIpo(ipoId),
-      api.listTransactions({ ipoId }),
+      api.getIpoSummary(ipoId),
       api.listApplications({ ipoId }),
       api.listPeople(),
     ])
-      .then(([i, t, a, p]) => {
+      .then(([i, s, a, p]) => {
         setIpo(i);
-        setTxns(t);
+        setSummary(s);
         setApps(a);
         setPeople(p);
       })
@@ -85,69 +88,73 @@ export function IpoDetail() {
 
   useEffect(load, [load]);
 
-  const personName = useCallback(
-    (pid: number, fallback?: string) =>
-      fallback ??
-      people.find((p) => p.id === pid)?.name ??
-      `Person #${pid}`,
+  const partyName = useCallback(
+    (pid: number | null, fallback?: string) =>
+      pid == null
+        ? 'Me'
+        : (fallback ??
+          people.find((p) => p.id === pid)?.name ??
+          `Person #${pid}`),
     [people],
   );
 
-  const received = useMemo(
-    () => txns.filter((t) => t.direction === 'RECEIVED'),
+  const openPerson = useCallback(
+    (pid: number | null) => {
+      if (pid == null) return;
+      openDrawer({ personId: pid, ipoId });
+    },
+    [openDrawer, ipoId],
+  );
+
+  const txns: Transaction[] = summary?.transactions ?? [];
+
+  /** Receiver's application status, for the allotted hint in ReturnModal. */
+  const allottedHint = useCallback(
+    (t: Transaction): boolean | undefined => {
+      if (t.receiverId == null) return undefined;
+      const app = apps.find(
+        (a) => a.personId === t.receiverId && a.ipoId === t.ipoId,
+      );
+      return app ? app.status === 'ALLOTTED' : undefined;
+    },
+    [apps],
+  );
+
+  const isOpenLeg = (t: Transaction) =>
+    (t.outstanding ?? 0) > 0 && !t.settled && t.returnOfId == null;
+
+  const openLegs = useMemo(() => txns.filter(isOpenLeg), [txns]);
+
+  const returnedTotal = useMemo(
+    () => txns.filter((t) => t.returnOfId != null).reduce((s, t) => s + t.amount, 0),
     [txns],
   );
 
-  const grouped = useMemo(() => {
-    const map = new Map<number, { name: string; rows: Transaction[]; total: number }>();
-    for (const t of received) {
-      const g = map.get(t.personId) ?? {
-        name: personName(t.personId, t.personName),
-        rows: [],
-        total: 0,
-      };
-      g.rows.push(t);
-      g.total += t.amount;
-      map.set(t.personId, g);
-    }
-    return [...map.values()].sort((a, b) => b.total - a.total);
-  }, [received, personName]);
+  const refundLegs = useMemo(() => {
+    if (!refundApp) return [];
+    return openLegs.filter((t) => t.receiverId === refundApp.personId);
+  }, [refundApp, openLegs]);
 
-  const totalReceived = useMemo(
-    () => received.reduce((s, t) => s + t.amount, 0),
-    [received],
+  /** Funding info per application, from the summary. */
+  const fundingFor = useCallback(
+    (appId: number) =>
+      summary?.applications.find((x) => x.application.id === appId),
+    [summary],
   );
 
   const changeStatus = async (app: Application, status: AppStatus) => {
     try {
       await api.updateApplicationStatus(app.id, status);
-      setApps((prev) =>
-        prev.map((a) => (a.id === app.id ? { ...a, status } : a)),
-      );
+      await load();
       if (status === 'NOT_ALLOTTED') {
-        setRefundFor({ ...app, status });
-        setRefundAmt(String(app.amount));
+        setRefundApp({ ...app, status });
+        setTab('money');
       } else {
-        setRefundFor(null);
+        setRefundApp(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Status update failed.');
     }
-  };
-
-  const openRefundForm = () => {
-    if (!refundFor) return;
-    setTxnPrefill({
-      personId: refundFor.personId,
-      ipoId,
-      direction: 'SENT',
-      amount: Number(refundAmt) || refundFor.amount,
-      mode: 'UPI',
-      date: nowLocal(),
-      notes: 'Refund — not allotted',
-    });
-    setRefundFor(null);
-    setShowTxn(true);
   };
 
   const deleteIpo = async () => {
@@ -170,6 +177,44 @@ export function IpoDetail() {
   if (error && !ipo) return <div className="error-box">{error}</div>;
   if (!ipo) return <div className="empty">IPO not found.</div>;
 
+  const DebtRow = ({ d }: { d: IpoDebt }) => (
+    <div
+      className="owes-row"
+      key={`${d.senderId ?? 'me'}-${d.receiverId ?? 'me'}`}
+    >
+      <span>
+        <button
+          type="button"
+          className="party-link"
+          onClick={() => openPerson(d.receiverId)}
+          disabled={d.receiverId == null}
+          style={
+            d.receiverId == null
+              ? { color: 'inherit', cursor: 'default' }
+              : undefined
+          }
+        >
+          {d.receiverName}
+        </button>{' '}
+        owes{' '}
+        <button
+          type="button"
+          className="party-link"
+          onClick={() => openPerson(d.senderId)}
+          disabled={d.senderId == null}
+          style={
+            d.senderId == null
+              ? { color: 'inherit', cursor: 'default' }
+              : undefined
+          }
+        >
+          {d.senderName}
+        </button>
+      </span>
+      <span className="num strong">{formatINR(d.amount)}</span>
+    </div>
+  );
+
   return (
     <div>
       <div className="page-head">
@@ -180,8 +225,7 @@ export function IpoDetail() {
               {ipo.status}
             </span>{' '}
             {ipo.openDate && <>· opens {formatDate(ipo.openDate)}</>}
-            {ipo.closeDate && <> · closes {formatDate(ipo.closeDate)}</>} ·{' '}
-            received <strong>{formatINR(totalReceived)}</strong>
+            {ipo.closeDate && <> · closes {formatDate(ipo.closeDate)}</>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -199,12 +243,71 @@ export function IpoDetail() {
 
       {error && <div className="error-box">{error}</div>}
 
+      {/* Summary cards */}
+      {summary && (
+        <div
+          className="stats-grid"
+          style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
+        >
+          <div className="stat-card">
+            <div className="stat-label">Money moved</div>
+            <div className="stat-value">
+              {formatINR(summary.receivedTotal)}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Returned</div>
+            <div className="stat-value">{formatINR(returnedTotal)}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Still owed</div>
+            <div
+              className="stat-value"
+              style={{
+                color:
+                  summary.outstandingTotal > 0 ? 'var(--amber)' : undefined,
+              }}
+            >
+              {formatINR(summary.outstandingTotal)}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Allotted</div>
+            <div className="stat-value">
+              {summary.allottedCount}/{summary.applicationCount}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Outstanding debts — the money that still has to come back */}
+      {summary && (
+        <div className="drawer-section">
+          <h3>Outstanding debts</h3>
+          {summary.outstanding.length > 0 ? (
+            <div
+              className="card owes-card"
+              style={{ borderLeft: '4px solid var(--amber)' }}
+            >
+              {summary.outstanding.map((d) => (
+                <DebtRow
+                  key={`${d.senderId ?? 'me'}-${d.receiverId ?? 'me'}`}
+                  d={d}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty">All settled — nobody owes anything.</div>
+          )}
+        </div>
+      )}
+
       <div className="tabs">
         <button
           className={tab === 'money' ? 'on' : ''}
           onClick={() => setTab('money')}
         >
-          💰 Money Received ({received.length})
+          💰 Money ({txns.length})
         </button>
         <button
           className={tab === 'apps' ? 'on' : ''}
@@ -217,35 +320,58 @@ export function IpoDetail() {
       {tab === 'money' && (
         <>
           <div className="toolbar">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={groupByPerson}
-                onChange={(e) => setGroupByPerson(e.target.checked)}
-              />
-              Group by person
-            </label>
             <div style={{ marginLeft: 'auto' }}>
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => {
-                  setTxnPrefill({ ipoId, direction: 'RECEIVED', date: nowLocal() });
+                  setTxnPrefill({ ipoId, date: nowLocal() });
                   setShowTxn(true);
                 }}
               >
-                + Record Money Received
+                + Record Movement
               </button>
             </div>
           </div>
+
+          {refundApp && (
+            <div className="refund-prompt">
+              <span>
+                ↩ {partyName(refundApp.personId, refundApp.personName)} wasn&apos;t
+                allotted — return the money:
+              </span>
+              {refundLegs.length > 0 ? (
+                <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {refundLegs.map((t) => (
+                    <button
+                      key={t.id}
+                      className="btn btn-primary btn-sm"
+                      onClick={() => setReturnTxn(t)}
+                    >
+                      Return {formatINR(t.outstanding ?? t.amount)} to{' '}
+                      {partyName(t.senderId, t.senderName)}
+                    </button>
+                  ))}
+                </span>
+              ) : (
+                <span className="sub">nothing open — already returned.</span>
+              )}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setRefundApp(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           <div className="card" style={{ padding: 0 }}>
             <div className="table-wrap">
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Person</th>
                     <th>From → To</th>
                     <th className="num">Amount</th>
+                    <th className="num">Outstanding</th>
                     <th>Mode</th>
                     <th>Date</th>
                     <th>Status</th>
@@ -253,32 +379,50 @@ export function IpoDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!groupByPerson &&
-                    received.map((t) => (
-                      <tr key={t.id}>
+                  {txns.map((t) => {
+                    const open = isOpenLeg(t);
+                    return (
+                      <tr key={t.id} className={t.struck ? 'struck-row' : ''}>
                         <td>
                           <button
-                            className="person-link"
-                            onClick={() =>
-                              openDrawer({ personId: t.personId, ipoId })
+                            className="party-link"
+                            onClick={() => openPerson(t.senderId)}
+                            disabled={t.senderId == null}
+                            style={
+                              t.senderId == null
+                                ? { color: 'inherit', cursor: 'default' }
+                                : undefined
                             }
                           >
-                            {personName(t.personId, t.personName)}
+                            {partyName(t.senderId, t.senderName)}
                           </button>
-                        </td>
-                        <td>
-                          <span className="route">
-                            <span className="route-from">
-                              {t.sender?.trim() ||
-                                personName(t.personId, t.personName)}
-                            </span>
-                            <span className="route-arrow"> → </span>
-                            <span className="route-to">
-                              {t.receiver?.trim() || 'Me'}
-                            </span>
-                          </span>
+                          <span aria-hidden> → </span>
+                          <button
+                            className="party-link"
+                            onClick={() => openPerson(t.receiverId)}
+                            disabled={t.receiverId == null}
+                            style={
+                              t.receiverId == null
+                                ? { color: 'inherit', cursor: 'default' }
+                                : undefined
+                            }
+                          >
+                            {partyName(t.receiverId, t.receiverName)}
+                          </button>
+                          {t.returnOfId != null && (
+                            <span className="sub"> · return</span>
+                          )}
                         </td>
                         <td className="num strong">{formatINR(t.amount)}</td>
+                        <td className="num">
+                          {(t.outstanding ?? 0) > 0 ? (
+                            <strong style={{ color: 'var(--amber)' }}>
+                              {formatINR(t.outstanding ?? 0)}
+                            </strong>
+                          ) : (
+                            <span className="sub">—</span>
+                          )}
+                        </td>
                         <td className="mode-cell">
                           <span className="mode-icon">{MODE_ICONS[t.mode]}</span>
                           {MODE_LABELS[t.mode]}
@@ -304,96 +448,29 @@ export function IpoDetail() {
                               </div>
                             )}
                         </td>
-                        <td>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setEditTxn(t)}
-                          >
-                            Edit
-                          </button>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {open && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => setReturnTxn(t)}
+                              style={{ marginRight: 6 }}
+                            >
+                              Return
+                            </button>
+                          )}
+                          {t.returnOfId == null && (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setEditTxn(t)}
+                            >
+                              Edit
+                            </button>
+                          )}
                         </td>
                       </tr>
-                    ))}
-                  {groupByPerson &&
-                    grouped.map((g) => (
-                      <Fragment key={g.name}>
-                        <tr className="group-header">
-                          <td colSpan={7}>
-                            {g.name} — {g.rows.length} payment
-                            {g.rows.length !== 1 && 's'}
-                          </td>
-                        </tr>
-                        {g.rows.map((t) => (
-                          <tr key={t.id}>
-                            <td style={{ paddingLeft: 28 }}>
-                              <button
-                                className="person-link"
-                                onClick={() =>
-                                  openDrawer({ personId: t.personId, ipoId })
-                                }
-                              >
-                                {personName(t.personId, t.personName)}
-                              </button>
-                            </td>
-                            <td>
-                          <span className="route">
-                            <span className="route-from">
-                              {t.sender?.trim() ||
-                                personName(t.personId, t.personName)}
-                            </span>
-                            <span className="route-arrow"> → </span>
-                            <span className="route-to">
-                              {t.receiver?.trim() || 'Me'}
-                            </span>
-                          </span>
-                        </td>
-                            <td className="num">{formatINR(t.amount)}</td>
-                            <td className="mode-cell">
-                              <span className="mode-icon">
-                                {MODE_ICONS[t.mode]}
-                              </span>
-                              {MODE_LABELS[t.mode]}
-                            </td>
-                            <td>{formatDateTime(t.date)}</td>
-                            <td>
-                              <span className={pillClassForTxnStatus(t.status)}>
-                                {TXN_STATUS_LABELS[t.status] ?? t.status}
-                              </span>
-                              {t.status === 'SETTLED_SOLD' &&
-                                t.profitLoss != null && (
-                                  <div
-                                    className="sub"
-                                    style={{
-                                      color:
-                                        t.profitLoss >= 0
-                                          ? 'var(--green)'
-                                          : 'var(--red)',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    P&L {formatSignedINR(t.profitLoss)}
-                                  </div>
-                                )}
-                            </td>
-                            <td>
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => setEditTxn(t)}
-                              >
-                                Edit
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                        <tr className="group-subtotal">
-                          <td>Subtotal</td>
-                          <td />
-                          <td className="num">{formatINR(g.total)}</td>
-                          <td colSpan={4} />
-                        </tr>
-                      </Fragment>
-                    ))}
-                  {received.length === 0 && (
+                    );
+                  })}
+                  {txns.length === 0 && (
                     <tr>
                       <td colSpan={7} className="empty">
                         No money recorded for this IPO yet.
@@ -429,83 +506,122 @@ export function IpoDetail() {
                     <th className="num">Amount</th>
                     <th>Applied</th>
                     <th>Status</th>
+                    <th>Funding</th>
                     <th>Confirmed by</th>
                     <th className="num">P&amp;L</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {apps.map((a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <button
-                          className="person-link"
-                          onClick={() =>
-                            openDrawer({ personId: a.personId, ipoId })
-                          }
-                        >
-                          {personName(a.personId, a.personName)}
-                        </button>
-                      </td>
-                      <td className="num strong">{formatINR(a.amount)}</td>
-                      <td>{formatDate(a.appliedDate)}</td>
-                      <td>
-                        <select
-                          className="status-select"
-                          value={a.status}
-                          onChange={(e) =>
-                            changeStatus(a, e.target.value as AppStatus)
-                          }
-                          aria-label={`Status for ${personName(a.personId, a.personName)}`}
-                        >
-                          {(Object.keys(APP_STATUS_LABELS) as AppStatus[]).map(
-                            (s) => (
-                              <option key={s} value={s}>
-                                {APP_STATUS_LABELS[s]}
-                              </option>
-                            ),
-                          )}
-                        </select>{' '}
-                        <span className={pillClassForAppStatus(a.status)}>
-                          {APP_STATUS_LABELS[a.status]}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-                        {a.allottedBy
-                          ? `${a.allottedBy}${a.allottedAt ? ` · ${formatDate(a.allottedAt)}` : ''}`
-                          : '—'}
-                      </td>
-                      <td
-                        className="num strong"
-                        style={{
-                          color:
-                            a.profitLoss != null && a.profitLoss > 0
-                              ? 'var(--green)'
-                              : a.profitLoss != null && a.profitLoss < 0
-                                ? 'var(--red)'
-                                : undefined,
-                        }}
-                        title={
-                          a.soldAt ? `Sold ${formatDateTime(a.soldAt)}` : undefined
-                        }
-                      >
-                        {a.profitLoss != null ? formatINR(a.profitLoss) : '—'}
-                      </td>
-                      <td>
-                        {a.status === 'ALLOTTED' && (
+                  {apps.map((a) => {
+                    const funding = fundingFor(a.id);
+                    return (
+                      <tr key={a.id}>
+                        <td>
                           <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setSaleFor(a)}
+                            className="person-link"
+                            onClick={() =>
+                              openDrawer({ personId: a.personId, ipoId })
+                            }
                           >
-                            {a.profitLoss != null ? 'Edit sale' : 'Record sale'}
+                            {partyName(a.personId, a.personName)}
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="num strong">{formatINR(a.amount)}</td>
+                        <td>{formatDate(a.appliedDate)}</td>
+                        <td>
+                          <select
+                            className="status-select"
+                            value={a.status}
+                            onChange={(e) =>
+                              changeStatus(a, e.target.value as AppStatus)
+                            }
+                            aria-label={`Status for ${partyName(a.personId, a.personName)}`}
+                          >
+                            {(Object.keys(APP_STATUS_LABELS) as AppStatus[]).map(
+                              (s) => (
+                                <option key={s} value={s}>
+                                  {APP_STATUS_LABELS[s]}
+                                </option>
+                              ),
+                            )}
+                          </select>{' '}
+                          <span className={pillClassForAppStatus(a.status)}>
+                            {APP_STATUS_LABELS[a.status]}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '0.85rem' }}>
+                          {funding && funding.funders.length > 0 ? (
+                            funding.funders.map((f) => (
+                              <div key={f.funderId ?? 'me'}>
+                                {f.funderId != null ? (
+                                  <button
+                                    type="button"
+                                    className="party-link"
+                                    onClick={() => openPerson(f.funderId)}
+                                  >
+                                    {f.funderName}
+                                  </button>
+                                ) : (
+                                  <span>{f.funderName}</span>
+                                )}{' '}
+                                <span className="num">{formatINR(f.amount)}</span>
+                                {f.outstanding > 0 && (
+                                  <span
+                                    className="sub"
+                                    style={{ color: 'var(--amber)' }}
+                                  >
+                                    {' '}
+                                    · owes {formatINR(f.outstanding)}
+                                  </span>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <span className="sub">—</span>
+                          )}
+                        </td>
+                        <td
+                          style={{ fontSize: '0.85rem', color: 'var(--muted)' }}
+                        >
+                          {a.allottedBy
+                            ? `${a.allottedBy}${a.allottedAt ? ` · ${formatDate(a.allottedAt)}` : ''}`
+                            : '—'}
+                        </td>
+                        <td
+                          className="num strong"
+                          style={{
+                            color:
+                              a.profitLoss != null && a.profitLoss > 0
+                                ? 'var(--green)'
+                                : a.profitLoss != null && a.profitLoss < 0
+                                  ? 'var(--red)'
+                                  : undefined,
+                          }}
+                          title={
+                            a.soldAt
+                              ? `Sold ${formatDateTime(a.soldAt)}`
+                              : undefined
+                          }
+                        >
+                          {a.profitLoss != null ? formatINR(a.profitLoss) : '—'}
+                        </td>
+                        <td>
+                          {a.status === 'ALLOTTED' && (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setSaleFor(a)}
+                            >
+                              {a.profitLoss != null ? 'Edit sale' : 'Record sale'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {apps.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="empty">
+                      <td colSpan={8} className="empty">
                         No applications yet.
                       </td>
                     </tr>
@@ -514,37 +630,12 @@ export function IpoDetail() {
               </table>
             </div>
           </div>
-
-          {refundFor && (
-            <div className="refund-prompt">
-              <span>
-                ↩ Refund {formatINR(Number(refundAmt) || refundFor.amount)} to{' '}
-                {personName(refundFor.personId, refundFor.personName)}?
-              </span>
-              <input
-                type="number"
-                min="0"
-                value={refundAmt}
-                onChange={(e) => setRefundAmt(e.target.value)}
-                aria-label="Refund amount"
-              />
-              <button className="btn btn-primary btn-sm" onClick={openRefundForm}>
-                Record Money Sent
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => setRefundFor(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
         </>
       )}
 
       {showTxn && (
         <TransactionModal
-          title="Record Transaction"
+          title="Record Money Movement"
           prefill={txnPrefill}
           onClose={() => {
             setShowTxn(false);
@@ -567,11 +658,22 @@ export function IpoDetail() {
           }}
         />
       )}
+      {returnTxn && (
+        <ReturnModal
+          txn={returnTxn}
+          allotted={allottedHint(returnTxn)}
+          onClose={() => setReturnTxn(null)}
+          onDone={() => {
+            setReturnTxn(null);
+            load();
+          }}
+        />
+      )}
       {saleFor && (
         <SaleModal
           application={{
             id: saleFor.id,
-            personName: personName(saleFor.personId, saleFor.personName),
+            personName: partyName(saleFor.personId, saleFor.personName),
             ipoName: ipo?.name,
             profitLoss: saleFor.profitLoss,
           }}

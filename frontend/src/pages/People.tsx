@@ -30,7 +30,7 @@ export function People() {
   useEffect(load, []);
 
   const pendingFor = (personId: number) =>
-    pending.filter((t) => t.personId === personId);
+    pending.filter((t) => t.senderId === personId || t.receiverId === personId);
 
   const deletePerson = async (p: Person) => {
     if (
@@ -117,7 +117,7 @@ export function People() {
                 {pend.length > 0 && (
                   <div style={{ marginTop: 10 }}>
                     <span className="pill pill-amber">
-                      {pend.length} pending settlement
+                      {pend.length} open leg
                       {pend.length !== 1 && 's'}
                     </span>
                   </div>

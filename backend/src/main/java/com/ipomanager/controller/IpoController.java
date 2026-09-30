@@ -1,9 +1,11 @@
 package com.ipomanager.controller;
 
+import com.ipomanager.dto.IpoSummaryDto;
 import com.ipomanager.exception.ResourceNotFoundException;
 import com.ipomanager.model.Ipo;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.security.AuthContext;
+import com.ipomanager.service.ReportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +26,7 @@ import java.util.List;
 public class IpoController {
 
     private final IpoRepository ipoRepository;
+    private final ReportService reportService;
 
     @GetMapping
     public List<Ipo> list() {
@@ -33,6 +36,15 @@ public class IpoController {
     @GetMapping("/{id}")
     public Ipo get(@PathVariable Long id) {
         return owned(id);
+    }
+
+    /**
+     * The complete picture of one IPO: applications with their funders,
+     * allotment counts, every money movement, and who still owes whom.
+     */
+    @GetMapping("/{id}/summary")
+    public IpoSummaryDto summary(@PathVariable Long id) {
+        return reportService.summary(id);
     }
 
     @PostMapping

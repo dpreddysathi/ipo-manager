@@ -7,7 +7,6 @@ import com.ipomanager.model.Application;
 import com.ipomanager.model.ApplicationStatus;
 import com.ipomanager.model.IpoStatus;
 import com.ipomanager.model.Transaction;
-import com.ipomanager.model.TxnDirection;
 import com.ipomanager.repository.ApplicationRepository;
 import com.ipomanager.repository.IpoRepository;
 import com.ipomanager.repository.PersonRepository;
@@ -39,16 +38,33 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public DashboardStatsDto stats() {
         Long userId = AuthContext.currentUserId();
-        BigDecimal totalReceived =
-                transactionRepository.sumByOwnerIdAndDirection(userId, TxnDirection.RECEIVED);
-        BigDecimal totalSent =
-                transactionRepository.sumByOwnerIdAndDirection(userId, TxnDirection.SENT);
+        List<Transaction> txns = transactionRepository.findByOwnerId(userId);
 
-        List<Transaction> pending = transactionRepository.findPendingSettlements(
-                userId, TxnDirection.RECEIVED, List.of(IpoStatus.CLOSED, IpoStatus.LISTED));
-        BigDecimal pendingTotal = pending.stream()
+        BigDecimal moneyReceived = txns.stream()
+                .filter(t -> t.getReturnOf() == null
+                        && t.getReceiverPerson() == null)
                 .map(Transaction::getAmount)
+                .filter(a -> a != null)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal youOwe = BigDecimal.ZERO;
+        BigDecimal owedToYou = BigDecimal.ZERO;
+        long otherCount = 0;
+        BigDecimal otherAmount = BigDecimal.ZERO;
+        for (Map.Entry<Ledger.Triple, BigDecimal> e
+                : Ledger.netByTriple(txns).entrySet()) {
+            Ledger.Triple triple = e.getKey();
+            boolean recvMe = "ME".equals(triple.receiverKey());
+            boolean sendMe = "ME".equals(triple.senderKey());
+            if (recvMe) {
+                youOwe = youOwe.add(e.getValue());
+            } else if (sendMe) {
+                owedToYou = owedToYou.add(e.getValue());
+            } else {
+                otherCount++;
+                otherAmount = otherAmount.add(e.getValue());
+            }
+        }
 
         LocalDateTime yearStart = LocalDate.now().withDayOfYear(1).atStartOfDay();
         LocalDateTime now = LocalDateTime.now();
@@ -63,10 +79,11 @@ public class DashboardService {
 
         return new DashboardStatsDto(
                 ipoRepository.countByOwnerIdAndStatus(userId, IpoStatus.OPEN),
-                totalReceived,
+                moneyReceived,
                 personRepository.countByOwnerId(userId),
-                totalReceived.subtract(totalSent),
-                new DashboardStatsDto.PendingSettlements(pending.size(), pendingTotal),
+                youOwe,
+                owedToYou,
+                new DashboardStatsDto.PendingSettlements(otherCount, otherAmount),
                 rate);
     }
 
