@@ -1350,6 +1350,10 @@ select.status-select:focus {
    RESPONSIVE — mobile & small tablets
    ============================================================ */
 @media (max-width: 900px) {
+  /* Stack topbar above content (app-shell is a row on desktop) */
+  .app-shell {
+    flex-direction: column;
+  }
   /* Top bar with hamburger (sidebar becomes off-canvas below) */
   .topbar {
     display: flex;
