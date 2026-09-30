@@ -479,6 +479,14 @@ export function PersonDrawer() {
     return () => window.removeEventListener('keydown', onKey);
   }, [closeDrawer]);
 
+  const openParty = useCallback(
+    (partyId: number | null, ipoId?: number) => {
+      if (partyId == null) return;
+      openDrawer({ personId: partyId, ipoId });
+    },
+    [openDrawer],
+  );
+
   if (!selection) return null;
 
   const scoped = filters.ipoId !== undefined;
@@ -502,14 +510,6 @@ export function PersonDrawer() {
       setSending(false);
     }
   };
-
-  const openParty = useCallback(
-    (partyId: number | null, ipoId?: number) => {
-      if (partyId == null) return;
-      openDrawer({ personId: partyId, ipoId });
-    },
-    [openDrawer],
-  );
 
   const scopedRow: ReportIpoRow | undefined = scoped
     ? report?.ipos[0]
