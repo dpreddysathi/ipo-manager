@@ -50,6 +50,11 @@ public class TransactionMigration implements ApplicationRunner {
         if (!legacyColumnsPresent()) {
             return; // fresh database: nothing to migrate
         }
+        // Databases created before the rewrite still carry the old columns
+        // (person_id, direction, ...) as NOT NULL, and Hibernate's
+        // ddl-auto=update never drops or relaxes them — so every new insert
+        // fails. Relax them first; the data itself is migrated below.
+        relaxLegacyColumns();
         List<OldTxn> rows = jdbc.query(
                 "select t.id, t.person_id, t.direction, t.sender, t.receiver,"
                         + " t.settled, t.status, t.ipo_id, t.amount,"
@@ -156,6 +161,26 @@ public class TransactionMigration implements ApplicationRunner {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Drops the NOT NULL constraint from leftover pre-rewrite columns so
+     * new rows can be inserted. Runs on every startup while the legacy
+     * columns exist, and is a no-op once they are already nullable.
+     */
+    private void relaxLegacyColumns() {
+        List<String> notNull = jdbc.queryForList(
+                "select column_name from information_schema.columns"
+                        + " where table_name = 'TRANSACTIONS'"
+                        + " and column_name in"
+                        + " ('PERSON_ID','DIRECTION','SENDER','RECEIVER')"
+                        + " and is_nullable = 'NO'",
+                String.class);
+        for (String col : notNull) {
+            // Column name comes from the database metadata, not user input.
+            jdbc.execute("alter table transactions alter column " + col
+                    + " drop not null");
         }
     }
 
