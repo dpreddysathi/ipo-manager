@@ -1179,7 +1179,30 @@ select.status-select:focus {
   display: flex;
   flex-direction: column;
   gap: 15px;
-  animation: popIn 0.25s cubic-bezier(0.32, 0.72, 0.35, 1);
+  animation: authCardIn 0.34s cubic-bezier(0.32, 0.72, 0.35, 1);
+  overflow: hidden;
+}
+@keyframes authCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Gradient hairline across the top edge of the card */
+.auth-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6, #6366f1);
+  opacity: 0.85;
 }
 
 .auth-brand {
@@ -1218,18 +1241,133 @@ select.status-select:focus {
   line-height: 1.5;
 }
 
+/* Segmented login/register switch with a sliding pill */
+.auth-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #eef0f8;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  margin-top: 2px;
+}
+.auth-tabs button {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  padding: 9px 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--muted);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  font-family: inherit;
+}
+.auth-tabs button.active {
+  color: var(--navy);
+}
+.auth-tabs-pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  background: #fff;
+  border-radius: 9px;
+  box-shadow: 0 2px 8px rgba(30, 41, 82, 0.14);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0.35, 1);
+}
+.auth-tabs-pill[data-mode='register'] {
+  transform: translateX(100%);
+}
+
+/* The form remounts (keyed) on mode switch and slides in from the side */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  animation: authFormIn 0.3s cubic-bezier(0.32, 0.72, 0.35, 1);
+}
+@keyframes authFormIn {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--auth-dir, 1) * 22px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.form-error {
+  animation: authShake 0.32s ease;
+}
+@keyframes authShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+}
+
+/* Password field with show/hide toggle */
+.pw-wrap {
+  position: relative;
+}
+.pw-wrap input {
+  width: 100%;
+  padding-right: 64px;
+}
+.pw-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--indigo);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pw-toggle:hover {
+  background: #eef0fb;
+}
+
+/* Spinner shown inside the submit button while busy */
+.btn-spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  animation: btnSpin 0.7s linear infinite;
+}
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-note {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.55;
+}
+
 .auth-submit {
   width: 100%;
   margin-top: 6px;
   padding: 12px 20px;
   font-size: 0.97rem;
-}
-
-.auth-switch {
-  margin: 2px 0 0;
-  font-size: 0.89rem;
-  color: var(--muted);
-  text-align: center;
 }
 
 .auth-loading {

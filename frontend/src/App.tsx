@@ -10,8 +10,7 @@ import { IpoList } from './pages/IpoList';
 import { IpoDetail } from './pages/IpoDetail';
 import { People } from './pages/People';
 import { MoneyFlow } from './pages/MoneyFlow';
-import { Login } from './pages/Login';
-import { Register } from './pages/Register';
+import { AuthPage } from './pages/Auth';
 import './styles.css';
 
 /** Bounces visitors without a session to /login; waits for a saved
@@ -82,8 +81,8 @@ export default function App() {
     <HashRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<AuthPage mode="login" />} />
+          <Route path="/register" element={<AuthPage mode="register" />} />
           <Route
             path="/*"
             element={
