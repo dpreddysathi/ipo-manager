@@ -1761,35 +1761,58 @@ select.status-select:focus {
   color: var(--muted);
 }
 
-/* IPO picker list at the top of the Allotment page */
-.ipo-pick-list {
+/* IPO accordion on the Allotment page */
+.ipo-accordion {
   display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
 }
 
-.ipo-pick-item {
+.ipo-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ipo-card.expanded {
+  border-color: var(--indigo);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.12);
+}
+
+.ipo-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--card);
+  padding: 14px 16px;
+  border: 0;
+  background: transparent;
   color: var(--ink);
   font-size: 1rem;
   cursor: pointer;
   text-align: left;
 }
 
-.ipo-pick-item.selected {
-  border-color: var(--indigo);
-  box-shadow: 0 0 0 1px var(--indigo);
+.ipo-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-/* Registrar auto-detect status bar under the selected IPO */
+.ipo-card-count {
+  font-size: 0.85rem;
+}
+
+.ipo-card-body {
+  padding: 4px 16px 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* Registrar auto-detect status bar inside the open IPO card */
 .detect-bar {
   display: flex;
   align-items: center;
@@ -1798,25 +1821,8 @@ select.status-select:focus {
   padding: 10px 12px;
   background: var(--indigo-faint);
   border-radius: 10px;
-  margin: 4px 0 10px;
+  margin: 12px 0 10px;
   font-size: 0.92rem;
-}
-
-.allot-ipo-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  cursor: pointer;
-  padding: 4px 2px;
-}
-
-.allot-ipo-head .muted {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .allot-row {
@@ -1824,7 +1830,7 @@ select.status-select:focus {
   grid-template-columns: 1.4fr 1fr auto;
   align-items: center;
   gap: 10px;
-  padding: 10px 4px;
+  padding: 12px 4px;
   border-top: 1px solid var(--line);
 }
 
@@ -1885,11 +1891,38 @@ select.status-select:focus {
 }
 
 @media (max-width: 640px) {
-  .allot-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
+  .ipo-card-head {
+    padding: 12px;
   }
+
+  .ipo-card-body {
+    padding: 4px 12px 12px;
+  }
+
+  .detect-bar {
+    font-size: 0.88rem;
+  }
+
+  .allot-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "who actions"
+      "result actions";
+    align-items: center;
+    row-gap: 4px;
+    padding: 12px 2px;
+  }
+
+  .allot-who {
+    grid-area: who;
+  }
+
+  .allot-result {
+    grid-area: result;
+  }
+
   .allot-actions {
-    justify-content: flex-start;
+    grid-area: actions;
+    justify-content: flex-end;
   }
 }

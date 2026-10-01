@@ -282,7 +282,7 @@ export function Allotment() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detection, setDetection] = useState<RegistrarDetection | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [results, setResults] = useState<
@@ -294,10 +294,10 @@ export function Allotment() {
   /** Guards against out-of-order detect responses when tapping fast. */
   const selectToken = useRef(0);
 
-  /** Tap an IPO: select it and work out its registrar automatically. */
-  const selectIpo = (ipo: Ipo) => {
+  /** Tap an IPO: expand it and work out its registrar automatically. */
+  const expandIpo = (ipo: Ipo) => {
     const token = ++selectToken.current;
-    setSelectedId(ipo.id);
+    setExpandedId(ipo.id);
     setResults({});
     const regVal = ipo.registrar ?? '';
     const already = REGISTRARS.find((r) => r.value === regVal);
@@ -348,6 +348,19 @@ export function Allotment() {
       });
   };
 
+  /** Collapse the open card, or expand a different IPO. */
+  const toggleIpo = (ipo: Ipo) => {
+    if (ipo.id === expandedId) {
+      selectToken.current++;
+      setExpandedId(null);
+      setDetection(null);
+      setDetecting(false);
+      setResults({});
+      return;
+    }
+    expandIpo(ipo);
+  };
+
   useEffect(() => {
     Promise.all([
       api.listIpos(),
@@ -369,7 +382,7 @@ export function Allotment() {
           [...personList].sort((a, b) => a.name.localeCompare(b.name)),
         );
         setApplications(appList);
-        if (open.length > 0) selectIpo(open[0]);
+        if (open.length > 0) expandIpo(open[0]);
       })
       .catch((e) =>
         setError(e instanceof Error ? e.message : 'Failed to load.'),
@@ -378,17 +391,17 @@ export function Allotment() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selected = useMemo(
-    () => ipos.find((i) => i.id === selectedId) ?? null,
-    [ipos, selectedId],
+  const expanded = useMemo(
+    () => ipos.find((i) => i.id === expandedId) ?? null,
+    [ipos, expandedId],
   );
-  const regValue = detection?.registrar ?? selected?.registrar ?? null;
+  const regValue = detection?.registrar ?? expanded?.registrar ?? null;
   const regInfo = REGISTRARS.find((r) => r.value === regValue);
   const auto = regInfo?.auto ?? false;
 
   const appFor = (personId: number) =>
     applications.find(
-      (a) => a.personId === personId && a.ipoId === selectedId,
+      (a) => a.personId === personId && a.ipoId === expandedId,
     ) ?? null;
 
   const markChecking = (id: number, on: boolean) =>
@@ -425,8 +438,8 @@ export function Allotment() {
   });
 
   const checkOne = async (person: Person) => {
-    if (!selected || checking[person.id]) return;
-    const ipoId = selected.id;
+    if (!expanded || checking[person.id]) return;
+    const ipoId = expanded.id;
     markChecking(person.id, true);
     try {
       const r = await api.checkAllotment(ipoId, person.id);
@@ -440,8 +453,8 @@ export function Allotment() {
 
   /** Checks every person against the IPO, one after another. */
   const checkAll = async () => {
-    if (!selected || checkingAll) return;
-    const ipoId = selected.id;
+    if (!expanded || checkingAll) return;
+    const ipoId = expanded.id;
     setCheckingAll(true);
     try {
       for (const person of people) {
@@ -484,8 +497,8 @@ export function Allotment() {
         <div>
           <h1>Allotment Check</h1>
           <p className="sub">
-            Pick an IPO — its registrar is detected automatically. Then
-            check everyone below, one by one.
+            Tap an IPO — its registrar is detected automatically, then
+            check everyone inside, one by one.
           </p>
         </div>
       </div>
@@ -503,41 +516,53 @@ export function Allotment() {
       )}
 
       {!loading && !error && ipos.length > 0 && (
-        <>
-          <div className="ipo-pick-list">
-            {ipos.map((ipo) => (
-              <button
+        <div className="ipo-accordion">
+          {ipos.map((ipo) => {
+            const isOpen = ipo.id === expandedId;
+            const savedReg = registrarOf(ipo);
+            const appCount = applications.filter(
+              (a) => a.ipoId === ipo.id,
+            ).length;
+            return (
+              <div
                 key={ipo.id}
-                type="button"
-                className={`ipo-pick-item${
-                  ipo.id === selectedId ? ' selected' : ''
-                }`}
-                onClick={() => {
-                  if (ipo.id !== selectedId) selectIpo(ipo);
-                }}
+                className={`ipo-card${isOpen ? ' expanded' : ''}`}
               >
-                <span>
-                  <strong>{ipo.name}</strong>{' '}
-                  <span
-                    className={
-                      ipo.status === 'OPEN'
-                        ? 'pill pill-green'
-                        : 'pill pill-gray'
-                    }
-                  >
-                    {ipo.status === 'OPEN' ? 'Open' : 'Closed'}
+                <button
+                  type="button"
+                  className="ipo-card-head"
+                  onClick={() => toggleIpo(ipo)}
+                >
+                  <span className="ipo-card-title">
+                    <strong>{ipo.name}</strong>
+                    <span
+                      className={
+                        ipo.status === 'OPEN'
+                          ? 'pill pill-green'
+                          : 'pill pill-gray'
+                      }
+                    >
+                      {ipo.status === 'OPEN' ? 'Open' : 'Closed'}
+                    </span>
+                    {savedReg ? (
+                      <span className="pill pill-blue">
+                        {savedReg.label}
+                      </span>
+                    ) : (
+                      <span className="pill pill-amber">No registrar</span>
+                    )}
+                    {appCount > 0 && (
+                      <span className="muted ipo-card-count">
+                        {appCount} application{appCount === 1 ? '' : 's'}
+                      </span>
+                    )}
                   </span>
-                </span>
-                <span className="muted">
-                  {ipo.id === selectedId ? '▾' : '▸'}
-                </span>
-              </button>
-            ))}
-          </div>
+                  <span className="muted">{isOpen ? '▾' : '▸'}</span>
+                </button>
 
-          {selected && (
-            <div className="card" style={{ marginBottom: 14 }}>
-              <div className="detect-bar">
+                {isOpen && (
+                  <div className="ipo-card-body">
+                    <div className="detect-bar">
                 {detecting && (
                   <span className="muted">Detecting registrar…</span>
                 )}
@@ -560,7 +585,7 @@ export function Allotment() {
                     )}
                     <button
                       className="btn btn-secondary"
-                      onClick={() => setRegistrarFor(selected)}
+                      onClick={() => setRegistrarFor(expanded)}
                     >
                       Change
                     </button>
@@ -576,7 +601,7 @@ export function Allotment() {
                     </span>
                     <button
                       className="btn btn-secondary"
-                      onClick={() => setRegistrarFor(selected)}
+                      onClick={() => setRegistrarFor(expanded)}
                     >
                       Set manually
                     </button>
@@ -692,9 +717,12 @@ export function Allotment() {
                   </div>
                 );
               })}
-            </div>
-          )}
-        </>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {registrarFor && (
