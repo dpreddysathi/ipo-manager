@@ -11,6 +11,7 @@ import { IpoDetail } from './pages/IpoDetail';
 import { People } from './pages/People';
 import { MoneyFlow } from './pages/MoneyFlow';
 import { Allotment } from './pages/Allotment';
+import { AllotmentDetail } from './pages/AllotmentDetail';
 import { AuthPage } from './pages/Auth';
 import './styles.css';
 
@@ -67,6 +68,7 @@ function AppShell() {
             <Route path="/people" element={<People />} />
             <Route path="/money-flow" element={<MoneyFlow />} />
             <Route path="/allotment" element={<Allotment />} />
+            <Route path="/allotment/:id" element={<AllotmentDetail />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>
         </main>

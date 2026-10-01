@@ -1761,58 +1761,7 @@ select.status-select:focus {
   color: var(--muted);
 }
 
-/* IPO accordion on the Allotment page */
-.ipo-accordion {
-  display: grid;
-  gap: 10px;
-}
-
-.ipo-card {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
-  overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.ipo-card.expanded {
-  border-color: var(--indigo);
-  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.12);
-}
-
-.ipo-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 14px 16px;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 1rem;
-  cursor: pointer;
-  text-align: left;
-}
-
-.ipo-card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.ipo-card-count {
-  font-size: 0.85rem;
-}
-
-.ipo-card-body {
-  padding: 4px 16px 14px;
-  border-top: 1px solid var(--line);
-}
-
-/* Registrar auto-detect status bar inside the open IPO card */
+/* Registrar auto-detect status bar on the allotment detail page */
 .detect-bar {
   display: flex;
   align-items: center;
@@ -1891,14 +1840,6 @@ select.status-select:focus {
 }
 
 @media (max-width: 640px) {
-  .ipo-card-head {
-    padding: 12px;
-  }
-
-  .ipo-card-body {
-    padding: 4px 12px 12px;
-  }
-
   .detect-bar {
     font-size: 0.88rem;
   }

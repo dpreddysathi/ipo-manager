@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type {
   AllotmentCheckResult,
@@ -12,17 +13,21 @@ import type {
   RegistrarDetection,
   RegistrarIpo,
 } from '../types';
-import { pillClassForAppStatus } from '../utils';
+import {
+  formatDate,
+  pillClassForAppStatus,
+  pillClassForIpoStatus,
+} from '../utils';
 import { Field, Modal } from '../components/Modal';
 
-interface RegistrarInfo {
+export interface RegistrarInfo {
   value: string;
   label: string;
   auto: boolean;
   url: string;
 }
 
-const REGISTRARS: RegistrarInfo[] = [
+export const REGISTRARS: RegistrarInfo[] = [
   {
     value: 'KFINTECH',
     label: 'KFintech',
@@ -55,7 +60,7 @@ const REGISTRARS: RegistrarInfo[] = [
   },
 ];
 
-function registrarOf(ipo: Ipo): RegistrarInfo | undefined {
+export function registrarOf(ipo: Ipo): RegistrarInfo | undefined {
   return REGISTRARS.find((r) => r.value === ipo.registrar);
 }
 
@@ -74,7 +79,7 @@ function toInput(ipo: Ipo): IpoInput {
   };
 }
 
-function outcomePill(outcome: AllotmentOutcome): string {
+export function outcomePill(outcome: AllotmentOutcome): string {
   switch (outcome) {
     case 'ALLOTTED':
       return 'pill pill-green';
@@ -92,7 +97,7 @@ function outcomePill(outcome: AllotmentOutcome): string {
   }
 }
 
-function outcomeLabel(r: AllotmentCheckResult): string {
+export function outcomeLabel(r: AllotmentCheckResult): string {
   switch (r.outcome) {
     case 'ALLOTTED':
       return r.allottedShares != null
@@ -114,7 +119,7 @@ function outcomeLabel(r: AllotmentCheckResult): string {
 
 /* ---------------- Registrar setup modal ---------------- */
 
-function RegistrarModal({
+export function RegistrarModal({
   ipo,
   onClose,
   onSaved,
@@ -274,222 +279,36 @@ function RegistrarModal({
   );
 }
 
-/* ---------------- Main page ---------------- */
+/* ---------------- Main page: IPO cards ---------------- */
 
 export function Allotment() {
+  const navigate = useNavigate();
   const [ipos, setIpos] = useState<Ipo[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [detection, setDetection] = useState<RegistrarDetection | null>(null);
-  const [detecting, setDetecting] = useState(false);
-  const [results, setResults] = useState<
-    Record<number, AllotmentCheckResult>
-  >({});
-  const [checking, setChecking] = useState<Record<number, boolean>>({});
-  const [checkingAll, setCheckingAll] = useState(false);
-  const [registrarFor, setRegistrarFor] = useState<Ipo | null>(null);
-  /** Guards against out-of-order detect responses when tapping fast. */
-  const selectToken = useRef(0);
-
-  /** Tap an IPO: expand it and work out its registrar automatically. */
-  const expandIpo = (ipo: Ipo) => {
-    const token = ++selectToken.current;
-    setExpandedId(ipo.id);
-    setResults({});
-    const regVal = ipo.registrar ?? '';
-    const already = REGISTRARS.find((r) => r.value === regVal);
-    if (already?.auto && ipo.registrarRef && ipo.registrar) {
-      setDetecting(false);
-      setDetection({
-        registrar: ipo.registrar,
-        registrarRef: ipo.registrarRef,
-        registrarName: null,
-        confidence: 1,
-        message: 'Already set.',
-      });
-      return;
-    }
-    setDetecting(true);
-    setDetection(null);
-    api
-      .detectRegistrar(ipo.id)
-      .then((d) => {
-        if (selectToken.current !== token) return;
-        setDetection(d);
-        if (d.registrar && d.registrarRef) {
-          setIpos((list) =>
-            list.map((i) =>
-              i.id === ipo.id
-                ? {
-                    ...i,
-                    registrar: d.registrar,
-                    registrarRef: d.registrarRef,
-                  }
-                : i,
-            ),
-          );
-        }
-      })
-      .catch(() => {
-        if (selectToken.current !== token) return;
-        setDetection({
-          registrar: null,
-          registrarRef: null,
-          registrarName: null,
-          confidence: 0,
-          message: 'Detection failed — set the registrar manually.',
-        });
-      })
-      .finally(() => {
-        if (selectToken.current === token) setDetecting(false);
-      });
-  };
-
-  /** Collapse the open card, or expand a different IPO. */
-  const toggleIpo = (ipo: Ipo) => {
-    if (ipo.id === expandedId) {
-      selectToken.current++;
-      setExpandedId(null);
-      setDetection(null);
-      setDetecting(false);
-      setResults({});
-      return;
-    }
-    expandIpo(ipo);
-  };
 
   useEffect(() => {
-    Promise.all([
-      api.listIpos(),
-      api.listPeople(),
-      api.listApplications(),
-    ])
-      .then(([ipoList, personList, appList]) => {
-        const open = ipoList
-          .filter((i) => i.status === 'OPEN' || i.status === 'CLOSED')
-          .sort((a, b) =>
-            a.status === b.status
-              ? a.name.localeCompare(b.name)
-              : a.status === 'OPEN'
-                ? -1
-                : 1,
-          );
-        setIpos(open);
-        setPeople(
-          [...personList].sort((a, b) => a.name.localeCompare(b.name)),
+    Promise.all([api.listIpos(), api.listApplications()])
+      .then(([ipoList, appList]) => {
+        setIpos(
+          ipoList
+            .filter((i) => i.status === 'OPEN' || i.status === 'CLOSED')
+            .sort((a, b) =>
+              a.status === b.status
+                ? a.name.localeCompare(b.name)
+                : a.status === 'OPEN'
+                  ? -1
+                  : 1,
+            ),
         );
         setApplications(appList);
-        if (open.length > 0) expandIpo(open[0]);
       })
       .catch((e) =>
         setError(e instanceof Error ? e.message : 'Failed to load.'),
       )
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const expanded = useMemo(
-    () => ipos.find((i) => i.id === expandedId) ?? null,
-    [ipos, expandedId],
-  );
-  const regValue = detection?.registrar ?? expanded?.registrar ?? null;
-  const regInfo = REGISTRARS.find((r) => r.value === regValue);
-  const auto = regInfo?.auto ?? false;
-
-  const appFor = (personId: number) =>
-    applications.find(
-      (a) => a.personId === personId && a.ipoId === expandedId,
-    ) ?? null;
-
-  const markChecking = (id: number, on: boolean) =>
-    setChecking((m) => {
-      const next = { ...m };
-      if (on) next[id] = true;
-      else delete next[id];
-      return next;
-    });
-
-  const applyOutcome = (
-    person: Person,
-    ipoId: number,
-    r: AllotmentCheckResult,
-  ) => {
-    setResults((m) => ({ ...m, [person.id]: r }));
-    if (r.outcome === 'ALLOTTED' || r.outcome === 'NOT_ALLOTTED') {
-      const status = r.outcome as AppStatus;
-      setApplications((list) =>
-        list.map((a) =>
-          a.personId === person.id && a.ipoId === ipoId
-            ? { ...a, status, allottedBy: 'Auto-check' }
-            : a,
-        ),
-      );
-    }
-  };
-
-  const failedResult = (person: Person): AllotmentCheckResult => ({
-    applicationId: null,
-    personId: person.id,
-    outcome: 'ERROR',
-    message: 'Request failed — try again.',
-  });
-
-  const checkOne = async (person: Person) => {
-    if (!expanded || checking[person.id]) return;
-    const ipoId = expanded.id;
-    markChecking(person.id, true);
-    try {
-      const r = await api.checkAllotment(ipoId, person.id);
-      applyOutcome(person, ipoId, r);
-    } catch {
-      applyOutcome(person, ipoId, failedResult(person));
-    } finally {
-      markChecking(person.id, false);
-    }
-  };
-
-  /** Checks every person against the IPO, one after another. */
-  const checkAll = async () => {
-    if (!expanded || checkingAll) return;
-    const ipoId = expanded.id;
-    setCheckingAll(true);
-    try {
-      for (const person of people) {
-        markChecking(person.id, true);
-        try {
-          const r = await api.checkAllotment(ipoId, person.id);
-          applyOutcome(person, ipoId, r);
-        } catch {
-          applyOutcome(person, ipoId, failedResult(person));
-        } finally {
-          markChecking(person.id, false);
-        }
-        // Be gentle with the registrar between lookups.
-        await new Promise((res) => setTimeout(res, 1200));
-      }
-    } finally {
-      setCheckingAll(false);
-    }
-  };
-
-  /** Manual fallback: record the outcome yourself after checking the site. */
-  const markManual = async (person: Person, status: AppStatus) => {
-    const app = appFor(person.id);
-    if (!app) return;
-    try {
-      await api.updateApplicationStatus(app.id, status);
-      setApplications((list) =>
-        list.map((a) =>
-          a.id === app.id ? { ...a, status, allottedBy: 'You' } : a,
-        ),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Update failed.');
-    }
-  };
 
   return (
     <div>
@@ -497,8 +316,7 @@ export function Allotment() {
         <div>
           <h1>Allotment Check</h1>
           <p className="sub">
-            Tap an IPO — its registrar is detected automatically, then
-            check everyone inside, one by one.
+            Tap an IPO to check allotment for everyone in it.
           </p>
         </div>
       </div>
@@ -516,9 +334,8 @@ export function Allotment() {
       )}
 
       {!loading && !error && ipos.length > 0 && (
-        <div className="ipo-accordion">
+        <div className="list-grid">
           {ipos.map((ipo) => {
-            const isOpen = ipo.id === expandedId;
             const savedReg = registrarOf(ipo);
             const appCount = applications.filter(
               (a) => a.ipoId === ipo.id,
@@ -526,229 +343,35 @@ export function Allotment() {
             return (
               <div
                 key={ipo.id}
-                className={`ipo-card${isOpen ? ' expanded' : ''}`}
+                className="card ipo-card"
+                onClick={() => navigate(`/allotment/${ipo.id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') navigate(`/allotment/${ipo.id}`);
+                }}
               >
-                <button
-                  type="button"
-                  className="ipo-card-head"
-                  onClick={() => toggleIpo(ipo)}
-                >
-                  <span className="ipo-card-title">
-                    <strong>{ipo.name}</strong>
-                    <span
-                      className={
-                        ipo.status === 'OPEN'
-                          ? 'pill pill-green'
-                          : 'pill pill-gray'
-                      }
-                    >
-                      {ipo.status === 'OPEN' ? 'Open' : 'Closed'}
-                    </span>
-                    {savedReg ? (
-                      <span className="pill pill-blue">
-                        {savedReg.label}
-                      </span>
-                    ) : (
-                      <span className="pill pill-amber">No registrar</span>
-                    )}
-                    {appCount > 0 && (
-                      <span className="muted ipo-card-count">
-                        {appCount} application{appCount === 1 ? '' : 's'}
-                      </span>
-                    )}
+                <div className="card-top">
+                  <h3>{ipo.name}</h3>
+                  <span className={pillClassForIpoStatus(ipo.status)}>
+                    {ipo.status}
                   </span>
-                  <span className="muted">{isOpen ? '▾' : '▸'}</span>
-                </button>
-
-                {isOpen && (
-                  <div className="ipo-card-body">
-                    <div className="detect-bar">
-                {detecting && (
-                  <span className="muted">Detecting registrar…</span>
-                )}
-                {!detecting && regInfo && (
-                  <>
-                    <span
-                      className={
-                        auto ? 'pill pill-green' : 'pill pill-blue'
-                      }
-                    >
-                      {regInfo.label}
-                    </span>
-                    {detection?.registrarName && (
-                      <span className="muted">
-                        Matched: {detection.registrarName}
-                      </span>
-                    )}
-                    {auto && detection?.message && (
-                      <span className="muted">· {detection.message}</span>
-                    )}
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setRegistrarFor(expanded)}
-                    >
-                      Change
-                    </button>
-                  </>
-                )}
-                {!detecting && !regInfo && (
-                  <>
-                    <span className="pill pill-amber">
-                      Registrar not detected
-                    </span>
-                    <span className="muted">
-                      {detection?.message ?? 'Set it manually.'}
-                    </span>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setRegistrarFor(expanded)}
-                    >
-                      Set manually
-                    </button>
-                  </>
-                )}
-              </div>
-
-              <div className="toolbar" style={{ marginBottom: 6 }}>
-                {auto && (
-                  <button
-                    className="btn btn-primary"
-                    disabled={checkingAll}
-                    onClick={checkAll}
-                  >
-                    {checkingAll ? 'Checking…' : '✓ Check all'}
-                  </button>
-                )}
-                {!auto && regInfo && (
-                  <a
-                    className="btn btn-secondary"
-                    href={regInfo.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open {regInfo.label} ↗
-                  </a>
-                )}
-              </div>
-
-              {people.length === 0 && (
-                <p className="muted">
-                  No people yet — add people first, then check them here.
-                </p>
-              )}
-
-              {people.map((person) => {
-                const app = appFor(person.id);
-                const r = results[person.id];
-                const isChecking = !!checking[person.id];
-                return (
-                  <div key={person.id} className="allot-row">
-                    <div className="allot-who">
-                      <strong>{person.name}</strong>
-                      {app ? (
-                        <span
-                          className={pillClassForAppStatus(app.status)}
-                          style={{ marginLeft: 8 }}
-                        >
-                          {app.status === 'ALLOTTED'
-                            ? 'Allotted'
-                            : app.status === 'NOT_ALLOTTED'
-                              ? 'Not allotted'
-                              : app.status === 'REFUNDED'
-                                ? 'Refunded'
-                                : 'Applied'}
-                        </span>
-                      ) : (
-                        <span
-                          className="muted"
-                          style={{ marginLeft: 8, fontSize: '0.85rem' }}
-                        >
-                          No application
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="allot-result">
-                      {isChecking && (
-                        <span className="muted">Checking…</span>
-                      )}
-                      {!isChecking && r && (
-                        <span
-                          className={outcomePill(r.outcome)}
-                          title={r.message ?? undefined}
-                        >
-                          {outcomeLabel(r)}
-                        </span>
-                      )}
-                      {!isChecking && !r && (
-                        <span className="muted">Not checked yet</span>
-                      )}
-                    </div>
-
-                    <div className="allot-actions">
-                      {auto && (
-                        <button
-                          className="btn btn-secondary"
-                          disabled={isChecking || checkingAll}
-                          onClick={() => checkOne(person)}
-                        >
-                          {isChecking ? '…' : 'Check'}
-                        </button>
-                      )}
-                      {!auto && regInfo && app && (
-                        <>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={() => markManual(person, 'ALLOTTED')}
-                          >
-                            Got it
-                          </button>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={() =>
-                              markManual(person, 'NOT_ALLOTTED')
-                            }
-                          >
-                            Missed
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-                  </div>
-                )}
+                </div>
+                <div className="meta">
+                  {savedReg ? (
+                    <>{savedReg.label} · </>
+                  ) : (
+                    <>No registrar · </>
+                  )}
+                  {appCount} application{appCount === 1 ? '' : 's'}
+                  {ipo.closeDate && (
+                    <> · Closes {formatDate(ipo.closeDate)}</>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
-      )}
-
-      {registrarFor && (
-        <RegistrarModal
-          ipo={registrarFor}
-          onClose={() => setRegistrarFor(null)}
-          onSaved={(updated) => {
-            setIpos((list) =>
-              list.map((i) => (i.id === updated.id ? updated : i)),
-            );
-            const inf = REGISTRARS.find(
-              (x) => x.value === updated.registrar,
-            );
-            if (inf?.auto && updated.registrarRef && updated.registrar) {
-              setDetection({
-                registrar: updated.registrar,
-                registrarRef: updated.registrarRef,
-                registrarName: null,
-                confidence: 1,
-                message: 'Set manually.',
-              });
-            } else {
-              setDetection(null);
-            }
-          }}
-        />
       )}
     </div>
   );
