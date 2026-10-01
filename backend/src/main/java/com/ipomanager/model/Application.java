@@ -63,6 +63,9 @@ public class Application {
     /** When the status was last changed to ALLOTTED / NOT_ALLOTTED. */
     private LocalDateTime allottedAt;
 
+    /** When the allotment was last checked (any outcome) — the check cache. */
+    private LocalDateTime checkedAt;
+
     /** When the allotted shares were sold (set when profit/loss is recorded). */
     private LocalDateTime soldAt;
 

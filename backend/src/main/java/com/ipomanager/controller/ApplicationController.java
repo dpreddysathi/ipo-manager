@@ -156,7 +156,7 @@ public class ApplicationController {
             return ApplicationStatus.valueOf(value);
         } catch (IllegalArgumentException | NullPointerException e) {
             throw new IllegalArgumentException(
-                    "status must be one of: APPLIED, ALLOTTED, NOT_ALLOTTED, REFUNDED");
+                    "status must be one of: APPLIED, ALLOTTED, NOT_ALLOTTED, REFUNDED, NOT_FOUND, NO_PAN, CHECK_FAILED");
         }
     }
 }

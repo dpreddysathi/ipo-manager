@@ -671,14 +671,19 @@
       var ci = ipos.find(function (x) { return x.id === Number(body.ipoId); });
       var cp = people.find(function (x) { return x.id === Number(body.personId); });
       if (!ci || !cp) return err('Not found', 404);
-      /* deterministic demo: even person ids get allotted */
-      var won = Number(body.personId) % 2 === 0;
-      var out = won ? 'ALLOTTED' : 'NOT_ALLOTTED';
+      /* deterministic demo across the outcomes the backend persists */
+      var mod = Number(body.personId) % 4;
+      var out = mod === 0 ? 'ALLOTTED'
+        : mod === 1 ? 'NOT_ALLOTTED'
+        : mod === 2 ? 'NOT_FOUND' : 'NEED_PAN';
+      var won = out === 'ALLOTTED';
       var ca = apps.find(function (a) {
         return a.personId === Number(body.personId) && a.ipoId === Number(body.ipoId);
       });
       if (ca) {
-        ca.status = out;
+        ca.status = won ? 'ALLOTTED'
+          : out === 'NOT_ALLOTTED' ? 'NOT_ALLOTTED'
+          : out === 'NOT_FOUND' ? 'NOT_FOUND' : 'NO_PAN';
         ca.allottedBy = 'Auto-check';
       }
       return json({
@@ -687,7 +692,9 @@
         outcome: out,
         allottedShares: won ? 24 : null,
         message: won ? 'Allotted 24 shares.'
-          : 'Application found, but no shares allotted.',
+          : out === 'NOT_ALLOTTED' ? 'Application found, but no shares allotted.'
+          : out === 'NOT_FOUND' ? 'No application found for this PAN.'
+          : 'No PAN on file for this person.',
       });
     }
 

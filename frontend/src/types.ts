@@ -77,7 +77,7 @@ export interface Transaction {
   struck?: boolean;
 }
 
-export type AppStatus = 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'REFUNDED';
+export type AppStatus = 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'REFUNDED' | 'NOT_FOUND' | 'NO_PAN' | 'CHECK_FAILED';
 
 export interface Application {
   id: number;

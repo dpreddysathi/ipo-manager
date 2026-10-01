@@ -3,19 +3,31 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import type {
   AllotmentCheckResult,
+  AllotmentOutcome,
   Application,
   AppStatus,
   Ipo,
   Person,
   RegistrarDetection,
 } from '../types';
-import { pillClassForAppStatus } from '../utils';
+import { APP_STATUS_LABELS, pillClassForAppStatus } from '../utils';
 import {
   REGISTRARS,
   RegistrarModal,
   outcomeLabel,
   outcomePill,
 } from './Allotment';
+
+/** Registrar outcome → application status persisted in the DB (the cache).
+ *  MANUAL records nothing — the user marks it Got it / Missed instead. */
+const OUTCOME_TO_APP_STATUS: Record<AllotmentOutcome, AppStatus | null> = {
+  ALLOTTED: 'ALLOTTED',
+  NOT_ALLOTTED: 'NOT_ALLOTTED',
+  NOT_FOUND: 'NOT_FOUND',
+  NEED_PAN: 'NO_PAN',
+  ERROR: 'CHECK_FAILED',
+  MANUAL: null,
+};
 
 /* ---------------- Per-IPO allotment detail page ---------------- */
 
@@ -109,6 +121,12 @@ export function AllotmentDetail() {
       (a) => a.personId === personId && a.ipoId === ipoId,
     ) ?? null;
 
+  /** Only APPLIED applications can be (re-)checked — everything else is
+   *  already answered and cached in the DB. */
+  const appliedCount = people.filter(
+    (p) => appFor(p.id)?.status === 'APPLIED',
+  ).length;
+
   const markChecking = (id: number, on: boolean) =>
     setChecking((m) => {
       const next = { ...m };
@@ -119,8 +137,8 @@ export function AllotmentDetail() {
 
   const applyOutcome = (person: Person, r: AllotmentCheckResult) => {
     setResults((m) => ({ ...m, [person.id]: r }));
-    if (r.outcome === 'ALLOTTED' || r.outcome === 'NOT_ALLOTTED') {
-      const status = r.outcome as AppStatus;
+    const status = OUTCOME_TO_APP_STATUS[r.outcome];
+    if (status) {
       setApplications((list) =>
         list.map((a) =>
           a.personId === person.id && a.ipoId === ipoId
@@ -151,12 +169,16 @@ export function AllotmentDetail() {
     }
   };
 
-  /** Checks every person against the IPO, one after another. */
+  /** Checks every still-APPLIED person against the IPO, one after another. */
   const checkAll = async () => {
     if (!ipo || checkingAll) return;
+    const pending = people.filter(
+      (p) => appFor(p.id)?.status === 'APPLIED',
+    );
+    if (pending.length === 0) return;
     setCheckingAll(true);
     try {
-      for (const person of people) {
+      for (const person of pending) {
         markChecking(person.id, true);
         try {
           const r = await api.checkAllotment(ipoId, person.id);
@@ -262,13 +284,15 @@ export function AllotmentDetail() {
           </div>
 
           <div className="toolbar" style={{ marginBottom: 6 }}>
-            {auto && (
+            {auto && appliedCount > 0 && (
               <button
                 className="btn btn-primary"
                 disabled={checkingAll}
                 onClick={checkAll}
               >
-                {checkingAll ? 'Checking…' : '✓ Check all'}
+                {checkingAll
+                  ? 'Checking…'
+                  : `✓ Check all (${appliedCount})`}
               </button>
             )}
             {!auto && regInfo && (
@@ -302,13 +326,7 @@ export function AllotmentDetail() {
                       className={pillClassForAppStatus(app.status)}
                       style={{ marginLeft: 8 }}
                     >
-                      {app.status === 'ALLOTTED'
-                        ? 'Allotted'
-                        : app.status === 'NOT_ALLOTTED'
-                          ? 'Not allotted'
-                          : app.status === 'REFUNDED'
-                            ? 'Refunded'
-                            : 'Applied'}
+                      {APP_STATUS_LABELS[app.status] ?? app.status}
                     </span>
                   ) : (
                     <span
@@ -330,13 +348,16 @@ export function AllotmentDetail() {
                       {outcomeLabel(r)}
                     </span>
                   )}
-                  {!isChecking && !r && (
+                  {!isChecking && !r && app?.status === 'APPLIED' && (
                     <span className="muted">Not checked yet</span>
+                  )}
+                  {!isChecking && !r && app && app.status !== 'APPLIED' && (
+                    <span className="muted">Already checked</span>
                   )}
                 </div>
 
                 <div className="allot-actions">
-                  {auto && (
+                  {auto && app?.status === 'APPLIED' && (
                     <button
                       className="btn btn-secondary"
                       disabled={isChecking || checkingAll}

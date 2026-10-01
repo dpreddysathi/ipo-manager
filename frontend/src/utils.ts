@@ -92,6 +92,12 @@ export function pillClassForAppStatus(s: AppStatus): string {
       return 'pill pill-red';
     case 'REFUNDED':
       return 'pill pill-blue';
+    case 'NOT_FOUND':
+      return 'pill pill-gray';
+    case 'NO_PAN':
+      return 'pill pill-amber';
+    case 'CHECK_FAILED':
+      return 'pill pill-red';
     case 'APPLIED':
     default:
       return 'pill pill-amber';
@@ -118,6 +124,9 @@ export const APP_STATUS_LABELS: Record<AppStatus, string> = {
   ALLOTTED: 'Allotted',
   NOT_ALLOTTED: 'Not Allotted',
   REFUNDED: 'Refunded',
+  NOT_FOUND: 'Not Found',
+  NO_PAN: 'No PAN',
+  CHECK_FAILED: 'Check Failed',
 };
 
 export const TXN_STATUS_LABELS: Record<TxnStatus, string> = {

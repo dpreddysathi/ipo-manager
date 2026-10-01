@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 /**
  * PAN-based allotment checking against registrar sites.
@@ -93,9 +94,12 @@ public class AllotmentController {
 
     /**
      * Checks one person against one IPO: looks up their PAN on the IPO's
-     * registrar. When the person has an application for this IPO and the
-     * registrar answers decisively, the application is updated to
-     * ALLOTTED / NOT_ALLOTTED (with the usual money-lifecycle sync).
+     * registrar. When the person has an application for this IPO, the
+     * outcome is saved on the application (the check cache) so a later
+     * visit reads it from our DB instead of calling the registrar again:
+     * ALLOTTED / NOT_ALLOTTED (with the usual money-lifecycle sync),
+     * NOT_FOUND, NO_PAN or CHECK_FAILED. MANUAL leaves the application
+     * untouched — record it via Got it / Missed instead.
      * People without an application just get the registrar's answer shown.
      */
     @PostMapping("/check")
@@ -122,15 +126,26 @@ public class AllotmentController {
                 .findByPersonIdAndIpoId(person.getId(), ipo.getId())
                 .stream().findFirst().ifPresent(app -> {
                     result.setApplicationId(app.getId());
-                    if (result.getOutcome()
-                            == AllotmentCheckResult.Outcome.ALLOTTED) {
-                        applicationService.applyStatus(app,
-                                ApplicationStatus.ALLOTTED, "Auto-check");
-                        applicationRepository.save(app);
-                    } else if (result.getOutcome()
-                            == AllotmentCheckResult.Outcome.NOT_ALLOTTED) {
-                        applicationService.applyStatus(app,
-                                ApplicationStatus.NOT_ALLOTTED, "Auto-check");
+                    ApplicationStatus status = switch (result.getOutcome()) {
+                        case ALLOTTED -> ApplicationStatus.ALLOTTED;
+                        case NOT_ALLOTTED -> ApplicationStatus.NOT_ALLOTTED;
+                        case NOT_FOUND -> ApplicationStatus.NOT_FOUND;
+                        case NEED_PAN -> ApplicationStatus.NO_PAN;
+                        case ERROR -> ApplicationStatus.CHECK_FAILED;
+                        // MANUAL: leave the application alone; the user
+                        // records it via Got it / Missed.
+                        case MANUAL -> null;
+                    };
+                    if (status != null) {
+                        if (status == ApplicationStatus.ALLOTTED
+                                || status == ApplicationStatus.NOT_ALLOTTED) {
+                            applicationService.applyStatus(
+                                    app, status, "Auto-check");
+                        } else {
+                            app.setStatus(status);
+                            app.setAllottedBy("Auto-check");
+                        }
+                        app.setCheckedAt(LocalDateTime.now());
                         applicationRepository.save(app);
                     }
                 });
