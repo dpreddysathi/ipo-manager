@@ -32,6 +32,8 @@ public class AllotmentCheckResult {
     }
 
     private Long applicationId;
+    /** The person that was checked — always present on the new flow. */
+    private Long personId;
     private Outcome outcome;
     /** Shares allotted, when the registrar reports a count. */
     private Integer allottedShares;
@@ -39,6 +41,6 @@ public class AllotmentCheckResult {
     private String message;
 
     public static AllotmentCheckResult of(Long applicationId, Outcome outcome, String message) {
-        return new AllotmentCheckResult(applicationId, outcome, null, message);
+        return new AllotmentCheckResult(applicationId, null, outcome, null, message);
     }
 }

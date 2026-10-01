@@ -18,6 +18,7 @@ import type {
   PersonReport,
   ProfitLossPeriod,
   ProfitLossReport,
+  RegistrarDetection,
   RegisterInput,
   RegistrarIpo,
   ReportFilters,
@@ -224,9 +225,12 @@ export const api = {
   /** Live IPO list from a registrar (KFINTECH / MUFG) for registrar setup. */
   getRegistrarIpos: (registrar: string) =>
     get<RegistrarIpo[]>(`/api/allotment/registrar-ipos${query({ registrar })}`),
+  /** Detects the IPO's registrar automatically (fuzzy name match, saved on hit). */
+  detectRegistrar: (ipoId: number) =>
+    post<RegistrarDetection>('/api/allotment/detect', { ipoId }),
   /** One PAN lookup against the IPO's registrar; records decisive outcomes. */
-  checkAllotment: (applicationId: number) =>
-    post<AllotmentCheckResult>('/api/allotment/check', { applicationId }),
+  checkAllotment: (ipoId: number, personId: number) =>
+    post<AllotmentCheckResult>('/api/allotment/check', { ipoId, personId }),
 
   // ---- Dashboard ----
   getDashboardStats: () => get<DashboardStats>('/api/dashboard/stats'),

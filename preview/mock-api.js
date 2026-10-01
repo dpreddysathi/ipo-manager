@@ -646,6 +646,51 @@
       return json(withAppNames(sa));
     }
 
+    /* allotment checking */
+    if (route === '/api/allotment/registrar-ipos' && method === 'GET') {
+      return json([
+        { id: 'demo-kf-1', name: 'Shree Ganesh Agro Limited' },
+        { id: 'demo-kf-2', name: 'Some Other IPO Limited' },
+      ]);
+    }
+    if (route === '/api/allotment/detect' && method === 'POST') {
+      var di = ipos.find(function (x) { return x.id === Number(body.ipoId); });
+      if (!di) return err('IPO not found', 404);
+      if (di.registrar && di.registrarRef) {
+        return json({ registrar: di.registrar, registrarRef: di.registrarRef,
+          registrarName: null, confidence: 1, message: 'Already set.' });
+      }
+      di.registrar = 'KFINTECH';
+      di.registrarRef = 'demo-kf-1';
+      return json({ registrar: 'KFINTECH', registrarRef: 'demo-kf-1',
+        registrarName: 'Shree Ganesh Agro Limited',
+        confidence: 0.95,
+        message: 'Matched automatically — change it if this looks wrong.' });
+    }
+    if (route === '/api/allotment/check' && method === 'POST') {
+      var ci = ipos.find(function (x) { return x.id === Number(body.ipoId); });
+      var cp = people.find(function (x) { return x.id === Number(body.personId); });
+      if (!ci || !cp) return err('Not found', 404);
+      /* deterministic demo: even person ids get allotted */
+      var won = Number(body.personId) % 2 === 0;
+      var out = won ? 'ALLOTTED' : 'NOT_ALLOTTED';
+      var ca = apps.find(function (a) {
+        return a.personId === Number(body.personId) && a.ipoId === Number(body.ipoId);
+      });
+      if (ca) {
+        ca.status = out;
+        ca.allottedBy = 'Auto-check';
+      }
+      return json({
+        applicationId: ca ? ca.id : null,
+        personId: Number(body.personId),
+        outcome: out,
+        allottedShares: won ? 24 : null,
+        message: won ? 'Allotted 24 shares.'
+          : 'Application found, but no shares allotted.',
+      });
+    }
+
     /* reports */
     if (route === '/api/reports/send' && method === 'POST') {
       var bq = new URLSearchParams();

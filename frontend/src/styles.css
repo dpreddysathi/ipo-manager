@@ -1761,6 +1761,47 @@ select.status-select:focus {
   color: var(--muted);
 }
 
+/* IPO picker list at the top of the Allotment page */
+.ipo-pick-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ipo-pick-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 1rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ipo-pick-item.selected {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 1px var(--indigo);
+}
+
+/* Registrar auto-detect status bar under the selected IPO */
+.detect-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--indigo-faint);
+  border-radius: 10px;
+  margin: 4px 0 10px;
+  font-size: 0.92rem;
+}
+
 .allot-ipo-head {
   display: flex;
   align-items: center;

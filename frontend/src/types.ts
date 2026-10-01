@@ -278,9 +278,21 @@ export type AllotmentOutcome =
   | 'ERROR';
 
 export interface AllotmentCheckResult {
-  applicationId: number;
+  /** Set when the person has an application for this IPO; null otherwise. */
+  applicationId: number | null;
+  personId: number | null;
   outcome: AllotmentOutcome;
   allottedShares?: number | null;
+  message?: string | null;
+}
+
+/** Best-guess registrar match for an IPO (POST /api/allotment/detect). */
+export interface RegistrarDetection {
+  /** KFINTECH / MUFG when matched confidently, else null. */
+  registrar: string | null;
+  registrarRef: string | null;
+  registrarName: string | null;
+  confidence: number;
   message?: string | null;
 }
 

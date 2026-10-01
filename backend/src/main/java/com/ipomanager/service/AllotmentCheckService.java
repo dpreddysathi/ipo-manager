@@ -3,6 +3,7 @@ package com.ipomanager.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ipomanager.dto.AllotmentCheckResult;
+import com.ipomanager.dto.RegistrarDetection;
 import com.ipomanager.dto.RegistrarIpoDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,8 +16,11 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -65,6 +69,65 @@ public class AllotmentCheckService {
     /** Which registrars support automatic checks. */
     public boolean supportsAutoCheck(String registrar) {
         return "KFINTECH".equals(registrar) || "MUFG".equals(registrar);
+    }
+
+    /**
+     * Fuzzy-matches the user's IPO name against the live KFintech and
+     * MUFG Intime catalogues. Returns the best match when it is
+     * confident (>= 0.6 Dice token overlap), otherwise empty — the
+     * caller then asks the user to set the registrar manually.
+     */
+    public Optional<RegistrarDetection> detectRegistrar(String ipoName) {
+        Set<String> want = nameTokens(ipoName);
+        if (want.isEmpty()) {
+            return Optional.empty();
+        }
+        RegistrarDetection best = null;
+        for (String reg : List.of("KFINTECH", "MUFG")) {
+            for (RegistrarIpoDto candidate : registrarIpos(reg)) {
+                double score = dice(want, nameTokens(candidate.getName()));
+                if (score >= 0.6
+                        && (best == null || score > best.getConfidence())) {
+                    best = new RegistrarDetection(reg, candidate.getId(),
+                            candidate.getName(), score, null);
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    /**
+     * Significant word tokens: lowercased, legal-entity suffixes stripped.
+     * Industry words ("capital", "foods", "steel"…) are kept — they are
+     * what tell two companies apart.
+     */
+    private static Set<String> nameTokens(String name) {
+        if (name == null) {
+            return Set.of();
+        }
+        Set<String> stop = Set.of(
+                "limited", "ltd", "private", "pvt", "llp",
+                "incorporated", "inc", "corporation", "corp",
+                "company", "co");
+        Set<String> out = new LinkedHashSet<>();
+        for (String t : name.toLowerCase().split("[^a-z0-9]+")) {
+            if (t.length() > 1 && !stop.contains(t)) {
+                out.add(t);
+            }
+        }
+        return out;
+    }
+
+    /** Dice token overlap, 0..1. Zero when the names share no token. */
+    private static double dice(Set<String> a, Set<String> b) {
+        if (a.isEmpty() || b.isEmpty()) {
+            return 0;
+        }
+        long inter = a.stream().filter(b::contains).count();
+        if (inter == 0) {
+            return 0;
+        }
+        return 2.0 * inter / (a.size() + b.size());
     }
 
     /** Live IPO list from a registrar, for picking the registrarRef. */
@@ -168,7 +231,7 @@ public class AllotmentCheckService {
                     "Registrar returned an unrecognized response format.");
         }
         if (allotted > 0) {
-            return new AllotmentCheckResult(applicationId,
+            return new AllotmentCheckResult(applicationId, null,
                     AllotmentCheckResult.Outcome.ALLOTTED, allotted,
                     "Allotted " + allotted + " shares.");
         }
@@ -257,7 +320,7 @@ public class AllotmentCheckService {
                     "Registrar returned an unrecognized response format.");
         }
         if (allotted > 0) {
-            return new AllotmentCheckResult(applicationId,
+            return new AllotmentCheckResult(applicationId, null,
                     AllotmentCheckResult.Outcome.ALLOTTED, allotted,
                     "Allotted " + allotted + " shares.");
         }
