@@ -1420,15 +1420,16 @@ select.status-select:focus {
   font-weight: 750;
   letter-spacing: -0.01em;
 }
-.ipo-card .meta {
+.ipo-card .phone {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+/* Base card meta line — shared by IPO, people and allotment cards. */
+.meta {
   color: var(--muted);
   font-size: 0.86rem;
   margin-top: 9px;
   line-height: 1.55;
-}
-.ipo-card .phone {
-  color: var(--muted);
-  font-size: 0.86rem;
 }
 .card-top {
   display: flex;
@@ -1882,5 +1883,78 @@ select.status-select:focus {
   .allot-actions {
     grid-area: actions;
     justify-content: flex-end;
+  }
+}
+
+/* ── Style refresh: classes the JSX uses that never had styles ────────── */
+
+/* Standalone text input (e.g. the IPO board search). Matches .field input. */
+.input {
+  width: 100%;
+  border: 1px solid #d8dce6;
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-size: 0.93rem;
+  font-family: inherit;
+  background: #fbfcfe;
+  color: var(--ink);
+  transition: border-color 0.13s ease, box-shadow 0.13s ease, background 0.13s ease;
+}
+.input::placeholder {
+  color: var(--faint);
+}
+.input:hover {
+  border-color: #b9bfd2;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--indigo);
+  background: #fff;
+  box-shadow: var(--ring);
+}
+
+/* Triage banner on the IPO detail page (Apply / Avoid / avoided notice). */
+.decision-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--indigo-faint);
+  border: 1px solid #e2e5fb;
+  border-radius: var(--radius-sm);
+  padding: 13px 16px;
+  margin-bottom: 18px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.decision-banner .spacer {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  /* Board tabs scroll horizontally instead of squeezing on phones */
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tabs button {
+    white-space: nowrap;
+    padding: 10px 14px;
+  }
+  /* 16px inputs: no iOS auto-zoom on focus */
+  .input {
+    font-size: 16px;
+  }
+  /* Search takes the full row on phones */
+  .toolbar .input {
+    max-width: none !important;
+  }
+  .decision-banner {
+    padding: 12px 14px;
   }
 }

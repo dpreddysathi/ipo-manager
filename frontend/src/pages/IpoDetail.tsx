@@ -60,51 +60,45 @@ function DecisionBanner({
 
   if (!ipo.boardHidden && undecided) {
     return (
-      <div className="info-box">
-        <div style={{ marginBottom: 8 }}>
-          Are you applying to this IPO?
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {canApply && (
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => setBoard({ decision: 'APPLY' })}
-            >
-              Apply
-            </button>
-          )}
+      <div className="decision-banner">
+        <span>Are you applying to this IPO?</span>
+        <span className="spacer" />
+        {canApply && (
           <button
-            className="btn btn-sm btn-secondary"
-            onClick={() => setBoard({ hidden: true, decision: 'AVOID' })}
+            className="btn btn-sm btn-primary"
+            onClick={() => setBoard({ decision: 'APPLY' })}
           >
-            Avoid
+            Apply
           </button>
-        </div>
+        )}
+        <button
+          className="btn btn-sm btn-secondary"
+          onClick={() => setBoard({ hidden: true, decision: 'AVOID' })}
+        >
+          Avoid
+        </button>
       </div>
     );
   }
 
   if (ipo.boardHidden && ipo.decision === 'AVOID') {
     return (
-      <div className="info-box">
-        <div style={{ marginBottom: canApply ? 8 : 0 }}>
+      <div className="decision-banner">
+        <span>
           You chose to avoid this IPO — it stays in your records but is off
-          the board.
-        </div>
-        {canApply ? (
-          <>
-            <div style={{ marginBottom: 8 }}>Changed your mind?</div>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => setBoard({ hidden: false, decision: 'APPLY' })}
-            >
-              Apply
-            </button>
-          </>
-        ) : (
-          <div style={{ marginTop: 4 }}>
-            You opted not to apply for this IPO.
-          </div>
+          the board.{' '}
+          {canApply
+            ? 'Changed your mind?'
+            : 'You opted not to apply for this IPO.'}
+        </span>
+        <span className="spacer" />
+        {canApply && (
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => setBoard({ hidden: false, decision: 'APPLY' })}
+          >
+            Apply
+          </button>
         )}
       </div>
     );
@@ -112,11 +106,12 @@ function DecisionBanner({
 
   if (ipo.boardHidden) {
     return (
-      <div className="info-box">
-        <div style={{ marginBottom: 8 }}>
+      <div className="decision-banner">
+        <span>
           This IPO is off the board (it left automatically after the allotment
           date, or was removed).
-        </div>
+        </span>
+        <span className="spacer" />
         <button
           className="btn btn-sm btn-secondary"
           onClick={() => setBoard({ hidden: false })}
