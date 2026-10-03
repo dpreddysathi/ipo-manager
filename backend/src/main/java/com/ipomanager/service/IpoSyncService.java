@@ -11,6 +11,8 @@ import com.ipomanager.repository.AppUserRepository;
 import com.ipomanager.repository.IpoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,7 +46,11 @@ import java.util.regex.Pattern;
  *
  * <p>Rules, per the owner's spec:
  * <ul>
- *   <li>Runs daily at 06:30 IST, plus on demand via {@code POST /api/ipos/sync}.</li>
+ *   <li>Runs daily at 06:30 IST, once at startup, and on demand via
+ *       {@code POST /api/ipos/sync}.</li>
+ *   <li>The feed pass (new rows, refreshes, auto-hide) is fast and
+ *       synchronous; detail-page enrichment (lot size, allotment date) runs
+ *       in a background thread so the board never waits for it.</li>
  *   <li>Only {@code Issue Category = Mainboard} rows are imported.</li>
  *   <li>One AUTO row per user (matched by normalized name) — hand-added
  *       MANUAL rows are never created over, and never modified.</li>
@@ -91,6 +99,16 @@ public class IpoSyncService {
             .build();
     private final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * Background worker for the slow part (detail-page enrichment). Daemon
+     * thread: never blocks startup or shutdown.
+     */
+    private final ExecutorService bg = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ipo-sync-bg");
+        t.setDaemon(true);
+        return t;
+    });
+
     public record SyncSummary(int added, int updated, int hidden) {
     }
 
@@ -103,16 +121,38 @@ public class IpoSyncService {
     @Scheduled(cron = "0 30 6 * * *", zone = "Asia/Kolkata")
     public void scheduledSync() {
         try {
-            SyncSummary s = syncAll();
+            SyncSummary s = syncFeed();
             log.info("IPO sync done: added={} updated={} hidden={}",
                     s.added(), s.updated(), s.hidden());
+            submitEnrichment();
         } catch (Exception e) {
             log.warn("IPO sync failed: {}", e.toString());
         }
     }
 
-    /** One full pass for every registered user. */
-    public SyncSummary syncAll() {
+    /**
+     * First boot after a deploy/restart: fill the board in the background so
+     * it's already there when the user opens the page — no button needed.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onStartup() {
+        bg.submit(() -> {
+            try {
+                SyncSummary s = syncFeed();
+                log.info("IPO sync (startup) done: added={} updated={} hidden={}",
+                        s.added(), s.updated(), s.hidden());
+                enrichMissingDetails();
+            } catch (Exception e) {
+                log.warn("IPO sync (startup) failed: {}", e.toString());
+            }
+        });
+    }
+
+    /**
+     * The fast pass: feed fetch + upsert + auto-hide. Seconds, safe to call
+     * synchronously from the manual "Sync now" button.
+     */
+    public SyncSummary syncFeed() {
         List<FeedIpo> feed = fetchFeed();
         if (feed.isEmpty()) {
             log.warn("IPO sync: feed returned nothing, skipping");
@@ -128,16 +168,46 @@ public class IpoSyncService {
         return new SyncSummary(added, updated, hidden);
     }
 
+    /** Queue the slow detail-page enrichment; returns immediately. */
+    public void submitEnrichment() {
+        bg.submit(() -> {
+            try {
+                enrichMissingDetails();
+            } catch (Exception e) {
+                log.warn("IPO sync (enrichment) failed: {}", e.toString());
+            }
+        });
+    }
+
+    /**
+     * The slow pass: lot size + allotment date from each IPO's detail page.
+     * Always runs in the background — the board never waits for it.
+     */
+    private void enrichMissingDetails() {
+        Map<String, String> detailUrls = new HashMap<>();
+        for (FeedIpo f : fetchFeed()) {
+            detailUrls.putIfAbsent(normalize(f.name()), f.detailUrl());
+        }
+        for (AppUser user : appUserRepository.findAll()) {
+            for (Ipo ipo : ipoRepository.findByOwnerId(user.getId())) {
+                if (isManual(ipo)
+                        || (ipo.getLotSize() != null && ipo.getAllotmentDate() != null)) {
+                    continue;
+                }
+                enrichFromDetailPage(ipo, detailUrls.get(normalize(ipo.getName())));
+            }
+        }
+        log.info("IPO sync: detail enrichment pass done");
+    }
+
     private SyncSummary syncUser(Long ownerId, List<FeedIpo> feed) {
         Map<String, Ipo> byName = new HashMap<>();
-        Map<String, String> detailUrls = new HashMap<>();
         for (Ipo ipo : ipoRepository.findByOwnerId(ownerId)) {
             byName.putIfAbsent(normalize(ipo.getName()), ipo);
         }
         int added = 0, updated = 0;
         for (FeedIpo f : feed) {
             String key = normalize(f.name());
-            detailUrls.putIfAbsent(key, f.detailUrl());
             Ipo existing = byName.get(key);
             if (existing != null) {
                 if (isManual(existing)) {
@@ -157,13 +227,6 @@ public class IpoSyncService {
                 ipoRepository.save(ipo);
                 byName.put(key, ipo);
                 added++;
-            }
-        }
-        for (Map.Entry<String, Ipo> e : byName.entrySet()) {
-            Ipo ipo = e.getValue();
-            if (!isManual(ipo)
-                    && (ipo.getLotSize() == null || ipo.getAllotmentDate() == null)) {
-                enrichFromDetailPage(ipo, detailUrls.get(e.getKey()));
             }
         }
         return new SyncSummary(added, updated, autoHide(ownerId));

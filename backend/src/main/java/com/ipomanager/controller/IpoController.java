@@ -81,11 +81,15 @@ public class IpoController {
 
     /**
      * Pull the latest mainboard IPOs from Chittorgarh now (the same sync that
-     * runs daily at 06:30 IST). Returns what changed: added / updated / hidden.
+     * runs at startup and daily at 06:30 IST). The fast feed pass runs
+     * synchronously; detail enrichment continues in the background.
+     * Returns what changed: added / updated / hidden.
      */
     @PostMapping("/sync")
     public IpoSyncService.SyncSummary syncNow() {
-        return ipoSyncService.syncAll();
+        IpoSyncService.SyncSummary s = ipoSyncService.syncFeed();
+        ipoSyncService.submitEnrichment();
+        return s;
     }
 
     /**

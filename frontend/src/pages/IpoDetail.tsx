@@ -325,9 +325,6 @@ export function IpoDetail() {
             <span className={pillClassForIpoStatus(ipo.status)}>
               {ipo.status}
             </span>{' '}
-            {ipo.source === 'AUTO' && (
-              <span className="pill pill-auto">AUTO</span>
-            )}{' '}
             {ipo.openDate && <>· opens {formatDate(ipo.openDate)}</>}
             {ipo.closeDate && <> · closes {formatDate(ipo.closeDate)}</>}
             {ipo.allotmentDate && (

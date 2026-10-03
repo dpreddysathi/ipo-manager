@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { Ipo } from '../types';
 import { formatDate, formatINR, pillClassForIpoStatus } from '../utils';
-import { IpoModal } from '../components/Modals';
 
 type Tab = 'open' | 'upcoming' | 'closed';
 
@@ -49,15 +48,14 @@ export function IpoList() {
   const [ipos, setIpos] = useState<Ipo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
   const [tab, setTab] = useState<Tab>('open');
   const [query, setQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const navigate = useNavigate();
 
-  const load = () => {
-    setLoading(true);
+  const load = (quiet = false) => {
+    if (!quiet) setLoading(true);
     api
       .listIpos()
       .then(setIpos)
@@ -67,7 +65,24 @@ export function IpoList() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    // The board fills itself: if the last background sync is stale, refresh
+    // quietly so the data is already here when the user opens the page.
+    try {
+      const last = Number(localStorage.getItem('ipo-auto-sync-at') || 0);
+      if (Date.now() - last > 30 * 60 * 1000) {
+        localStorage.setItem('ipo-auto-sync-at', String(Date.now()));
+        api
+          .syncIpos()
+          .then(() => load(true))
+          .catch(() => {});
+      }
+    } catch {
+      // private-mode storage — the manual Sync button still works
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const counts = useMemo(() => {
     const c: Record<Tab, number> = { open: 0, upcoming: 0, closed: 0 };
@@ -130,18 +145,13 @@ export function IpoList() {
           <h1>IPOs</h1>
           <p className="sub">Open and upcoming mainboard IPOs.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn btn-secondary"
-            onClick={syncNow}
-            disabled={syncing}
-          >
-            {syncing ? 'Syncing…' : 'Sync now'}
-          </button>
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Add IPO
-          </button>
-        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={syncNow}
+          disabled={syncing}
+        >
+          {syncing ? 'Syncing…' : 'Sync now'}
+        </button>
       </div>
 
       {loading && <div className="loading">Loading…</div>}
@@ -196,9 +206,6 @@ export function IpoList() {
                   <div className="card-top">
                     <h3>{ipo.name}</h3>
                     <span style={{ display: 'flex', gap: 6 }}>
-                      {ipo.source === 'AUTO' && (
-                        <span className="pill pill-auto">AUTO</span>
-                      )}
                       {ipo.boardHidden && (
                         <span className="pill pill-gray">OFF BOARD</span>
                       )}
@@ -246,16 +253,6 @@ export function IpoList() {
             )}
           </div>
         </>
-      )}
-
-      {showAdd && (
-        <IpoModal
-          onClose={() => setShowAdd(false)}
-          onSaved={() => {
-            setShowAdd(false);
-            load();
-          }}
-        />
       )}
     </div>
   );
