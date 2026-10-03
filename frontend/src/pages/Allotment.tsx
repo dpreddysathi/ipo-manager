@@ -293,10 +293,18 @@ export function Allotment() {
       .then(([ipoList, appList]) => {
         // Only IPOs you're actually involved in — with ~200 auto-loaded IPOs
         // on the board, listing every open/closed one here would be noise.
+        // And only OPEN + CLOSED: registrars publish allotment after close,
+        // so upcoming/listed rows can never return a real result; hidden rows
+        // stay off this page entirely.
         const withApps = new Set(appList.map((a) => a.ipoId));
         setIpos(
           ipoList
-            .filter((i) => withApps.has(i.id))
+            .filter(
+              (i) =>
+                withApps.has(i.id) &&
+                !i.boardHidden &&
+                (i.status === 'OPEN' || i.status === 'CLOSED'),
+            )
             .sort((a, b) =>
               a.status === b.status
                 ? a.name.localeCompare(b.name)
