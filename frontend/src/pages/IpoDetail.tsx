@@ -37,6 +37,99 @@ import {
 
 type Tab = 'money' | 'apps';
 
+/**
+ * Triage banner for the board workflow:
+ * - undecided AUTO row on the board → Apply / Avoid
+ * - avoided row found via search → "you chose to avoid…" + Apply (if still open)
+ * - row off the board for another reason → Restore to board
+ * Decided rows on the board show nothing here (the header has Remove).
+ */
+function DecisionBanner({
+  ipo,
+  setBoard,
+}: {
+  ipo: Ipo;
+  setBoard: (body: {
+    hidden?: boolean;
+    decision?: 'APPLY' | 'AVOID' | null;
+  }) => void;
+}) {
+  const undecided = ipo.source === 'AUTO' && ipo.decision == null;
+  const canApply =
+    ipo.status === 'OPEN' || ipo.status === 'UPCOMING';
+
+  if (!ipo.boardHidden && undecided) {
+    return (
+      <div className="info-box">
+        <div style={{ marginBottom: 8 }}>
+          Are you applying to this IPO?
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canApply && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setBoard({ decision: 'APPLY' })}
+            >
+              Apply
+            </button>
+          )}
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={() => setBoard({ hidden: true, decision: 'AVOID' })}
+          >
+            Avoid
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (ipo.boardHidden && ipo.decision === 'AVOID') {
+    return (
+      <div className="info-box">
+        <div style={{ marginBottom: canApply ? 8 : 0 }}>
+          You chose to avoid this IPO — it stays in your records but is off
+          the board.
+        </div>
+        {canApply ? (
+          <>
+            <div style={{ marginBottom: 8 }}>Changed your mind?</div>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setBoard({ hidden: false, decision: 'APPLY' })}
+            >
+              Apply
+            </button>
+          </>
+        ) : (
+          <div style={{ marginTop: 4 }}>
+            You opted not to apply for this IPO.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (ipo.boardHidden) {
+    return (
+      <div className="info-box">
+        <div style={{ marginBottom: 8 }}>
+          This IPO is off the board (it left automatically after the allotment
+          date, or was removed).
+        </div>
+        <button
+          className="btn btn-sm btn-secondary"
+          onClick={() => setBoard({ hidden: false })}
+        >
+          Restore to board
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export function IpoDetail() {
   const { id } = useParams<{ id: string }>();
   const ipoId = Number(id);
@@ -173,10 +266,13 @@ export function IpoDetail() {
     }
   };
 
-  const toggleBoardHidden = async () => {
+  const setBoard = async (body: {
+    hidden?: boolean;
+    decision?: 'APPLY' | 'AVOID' | null;
+  }) => {
     if (!ipo) return;
     try {
-      const updated = await api.setIpoBoardHidden(ipo.id, !ipo.boardHidden);
+      const updated = await api.setIpoBoard(ipo.id, body);
       setIpo(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Update failed.');
@@ -262,12 +358,14 @@ export function IpoDetail() {
           )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={toggleBoardHidden}
-          >
-            {ipo.boardHidden ? 'Restore to board' : 'Remove from board'}
-          </button>
+          {!ipo.boardHidden && ipo.decision !== 'AVOID' && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setBoard({ hidden: true })}
+            >
+              Remove from board
+            </button>
+          )}
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowEdit(true)}
@@ -281,6 +379,8 @@ export function IpoDetail() {
       </div>
 
       {error && <div className="error-box">{error}</div>}
+
+      <DecisionBanner ipo={ipo} setBoard={setBoard} />
 
       {/* Summary cards */}
       {summary && (

@@ -162,9 +162,11 @@ export const api = {
       '/api/ipos/sync',
       {},
     ),
-  /** Remove from board / restore. The row stays in the DB either way. */
-  setIpoBoardHidden: (id: number, hidden: boolean) =>
-    patch<Ipo>(`/api/ipos/${id}/board`, { hidden }),
+  /** Board visibility + triage decision. Hidden rows stay in the DB and remain searchable. */
+  setIpoBoard: (
+    id: number,
+    body: { hidden?: boolean; decision?: 'APPLY' | 'AVOID' | null },
+  ) => patch<Ipo>(`/api/ipos/${id}/board`, body),
 
   // ---- Transactions ----
   listTransactions: (params?: {

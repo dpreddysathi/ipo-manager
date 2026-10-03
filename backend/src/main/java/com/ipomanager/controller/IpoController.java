@@ -21,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ipos")
@@ -90,14 +89,23 @@ public class IpoController {
     }
 
     /**
-     * Remove from board ({@code hidden: true}) or restore it. The row stays in
-     * the DB and remains searchable either way — this only controls board visibility.
+     * Board visibility + triage decision. {@code hidden:true} removes from the
+     * board (row stays in the DB and remains searchable); {@code decision} is
+     * APPLY or AVOID. Either key may be omitted.
      */
     @PatchMapping("/{id}/board")
-    public Ipo setBoardHidden(@PathVariable Long id, @RequestBody Map<String, Boolean> body) {
+    public Ipo setBoard(@PathVariable Long id, @RequestBody BoardUpdate body) {
         Ipo ipo = owned(id);
-        ipo.setBoardHidden(body.getOrDefault("hidden", false));
+        if (body.hidden() != null) {
+            ipo.setBoardHidden(body.hidden());
+        }
+        if ("APPLY".equals(body.decision()) || "AVOID".equals(body.decision())) {
+            ipo.setDecision(body.decision());
+        }
         return ipoRepository.save(ipo);
+    }
+
+    public record BoardUpdate(Boolean hidden, String decision) {
     }
 
     /** IPO by id, but only if it belongs to the logged-in user. */

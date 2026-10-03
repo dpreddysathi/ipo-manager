@@ -96,6 +96,15 @@ public class Ipo {
     private String listingExchange;
 
     /**
+     * The user's triage decision for AUTO rows: APPLY (tracking it) or AVOID
+     * (not applying — hidden from the board but kept in the DB). Null means
+     * undecided: the board shows Apply/Avoid buttons. Manual rows are
+     * implicitly APPLY. The sync never changes this; auto-hide only flips
+     * boardHidden.
+     */
+    private String decision;
+
+    /**
      * The login account this row belongs to. Every query is scoped to the
      * current user's id, so users only ever see their own data.
      */

@@ -31,6 +31,8 @@ export interface Ipo {
   leadManager?: string | null;
   /** Where it lists, e.g. "BSE, NSE". */
   listingExchange?: string | null;
+  /** Triage decision for AUTO rows: APPLY (tracking) or AVOID (not applying). Null = undecided. */
+  decision?: 'APPLY' | 'AVOID' | null;
 }
 
 export interface Person {

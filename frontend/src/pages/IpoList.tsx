@@ -5,18 +5,17 @@ import type { Ipo } from '../types';
 import { formatDate, formatINR, pillClassForIpoStatus } from '../utils';
 import { IpoModal } from '../components/Modals';
 
-type Tab = 'open' | 'upcoming' | 'closed' | 'hidden';
+type Tab = 'open' | 'upcoming' | 'closed';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'open', label: 'Open' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'closed', label: 'Closed' },
-  { id: 'hidden', label: 'Hidden' },
 ];
 
-/** Which board tab an IPO belongs on. Null = shouldn't be on the board. */
+/** Which board tab an IPO belongs on. Null = off the board (hidden). */
 function tabOf(ipo: Ipo): Tab | null {
-  if (ipo.boardHidden) return 'hidden';
+  if (ipo.boardHidden) return null;
   switch (ipo.status) {
     case 'OPEN':
       return 'open';
@@ -30,6 +29,11 @@ function tabOf(ipo: Ipo): Tab | null {
     default:
       return null;
   }
+}
+
+/** Fresh AUTO rows you haven't triaged yet — these get Apply/Avoid buttons. */
+function isUndecided(ipo: Ipo): boolean {
+  return ipo.source === 'AUTO' && ipo.decision == null;
 }
 
 function priceLabel(ipo: Ipo): string | null {
@@ -66,7 +70,7 @@ export function IpoList() {
   useEffect(load, []);
 
   const counts = useMemo(() => {
-    const c: Record<Tab, number> = { open: 0, upcoming: 0, closed: 0, hidden: 0 };
+    const c: Record<Tab, number> = { open: 0, upcoming: 0, closed: 0 };
     for (const ipo of ipos) {
       const t = tabOf(ipo);
       if (t) c[t]++;
@@ -74,14 +78,16 @@ export function IpoList() {
     return c;
   }, [ipos]);
 
+  const searching = query.trim().length > 0;
+
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q) {
-      // Search spans everything — including hidden rows still in the DB.
+    if (searching) {
+      // Search spans everything — including rows off the board.
+      const q = query.trim().toLowerCase();
       return ipos.filter((ipo) => ipo.name.toLowerCase().includes(q));
     }
     return ipos.filter((ipo) => tabOf(ipo) === tab);
-  }, [ipos, tab, query]);
+  }, [ipos, tab, query, searching]);
 
   const syncNow = async () => {
     setSyncing(true);
@@ -99,17 +105,19 @@ export function IpoList() {
     }
   };
 
-  const toggleHidden = async (
+  /** Triage an IPO: APPLY keeps it on the board, AVOID hides it (DB keeps it). */
+  const decide = async (
     e: React.MouseEvent,
     ipo: Ipo,
+    decision: 'APPLY' | 'AVOID',
   ) => {
     e.stopPropagation();
-    const hidden = !ipo.boardHidden;
     try {
-      await api.setIpoBoardHidden(ipo.id, hidden);
-      setIpos((prev) =>
-        prev.map((p) => (p.id === ipo.id ? { ...p, boardHidden: hidden } : p)),
-      );
+      const updated = await api.setIpoBoard(ipo.id, {
+        hidden: decision === 'AVOID',
+        decision,
+      });
+      setIpos((prev) => prev.map((p) => (p.id === ipo.id ? updated : p)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update.');
     }
@@ -152,7 +160,7 @@ export function IpoList() {
             />
           </div>
 
-          {!query.trim() && (
+          {!searching && (
             <div className="tabs" style={{ marginBottom: 12 }}>
               {TABS.map((t) => (
                 <button
@@ -168,7 +176,12 @@ export function IpoList() {
 
           <div className="list-grid">
             {visible.map((ipo) => {
-              const hidden = !!ipo.boardHidden;
+              const undecided = isUndecided(ipo);
+              const showApply =
+                undecided &&
+                !searching &&
+                (ipo.status === 'OPEN' || ipo.status === 'UPCOMING');
+              const showAvoid = undecided && !searching;
               return (
                 <div
                   key={ipo.id}
@@ -186,6 +199,9 @@ export function IpoList() {
                       {ipo.source === 'AUTO' && (
                         <span className="pill pill-auto">AUTO</span>
                       )}
+                      {ipo.boardHidden && (
+                        <span className="pill pill-gray">OFF BOARD</span>
+                      )}
                       <span className={pillClassForIpoStatus(ipo.status)}>
                         {ipo.status}
                       </span>
@@ -198,24 +214,34 @@ export function IpoList() {
                     {ipo.lotSize ? <> · {ipo.lotSize} shares/lot</> : null}
                     {ipo.issueSize ? <> · {ipo.issueSize}</> : null}
                   </div>
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      className="btn btn-sm btn-secondary"
-                      onClick={(e) => toggleHidden(e, ipo)}
-                    >
-                      {hidden ? 'Restore to board' : 'Remove from board'}
-                    </button>
-                  </div>
+                  {(showApply || showAvoid) && (
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                      {showApply && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={(e) => decide(e, ipo, 'APPLY')}
+                        >
+                          Apply
+                        </button>
+                      )}
+                      {showAvoid && (
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={(e) => decide(e, ipo, 'AVOID')}
+                        >
+                          Avoid
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
             {visible.length === 0 && (
               <div className="card empty">
-                {query.trim()
+                {searching
                   ? `No IPOs matching “${query.trim()}”.`
-                  : tab === 'hidden'
-                    ? 'Nothing removed from the board.'
-                    : `No ${tab} IPOs right now.`}
+                  : `No ${tab} IPOs right now.`}
               </div>
             )}
           </div>
