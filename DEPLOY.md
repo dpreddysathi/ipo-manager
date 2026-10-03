@@ -139,3 +139,8 @@ For local dev: `npm run dev` (uses `http://localhost:8080` by default).
 - **KYC reveal:** masked by default; clicking reveal shows full values for
   30 seconds and writes an audit log row.
 - **H2 console** is disabled; talk to the DB only through the API.
+- **IPO auto-sync:** the backend pulls Chittorgarh's mainboard IPO list daily
+  at 06:30 IST (plus a "Sync now" button on the IPO page). New IPOs arrive
+  with an AUTO badge; hand-added IPOs are never modified. The first sync
+  after deploy fetches ~200 detail pages for lot sizes — it runs in the
+  background and can take several minutes; later syncs are fast.

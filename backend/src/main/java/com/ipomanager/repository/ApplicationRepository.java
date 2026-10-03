@@ -22,6 +22,8 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
     List<Application> findByPersonIdAndIpoId(Long personId, Long ipoId);
 
+    boolean existsByIpoIdAndStatus(Long ipoId, ApplicationStatus status);
+
     @Query("select a from Application a where a.ownerId = :ownerId "
             + "and a.ipo.id = :ipoId")
     List<Application> findByIpo(@Param("ownerId") Long ownerId,

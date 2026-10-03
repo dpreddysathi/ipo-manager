@@ -156,6 +156,15 @@ export const api = {
   updateIpo: (id: number, data: IpoInput) =>
     put<Ipo>(`/api/ipos/${id}`, data),
   deleteIpo: (id: number) => del(`/api/ipos/${id}`),
+  /** Pull the latest mainboard IPOs now (same sync that runs daily). */
+  syncIpos: () =>
+    post<{ added: number; updated: number; hidden: number }>(
+      '/api/ipos/sync',
+      {},
+    ),
+  /** Remove from board / restore. The row stays in the DB either way. */
+  setIpoBoardHidden: (id: number, hidden: boolean) =>
+    patch<Ipo>(`/api/ipos/${id}/board`, { hidden }),
 
   // ---- Transactions ----
   listTransactions: (params?: {

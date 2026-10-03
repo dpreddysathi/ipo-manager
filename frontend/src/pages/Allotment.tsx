@@ -291,9 +291,12 @@ export function Allotment() {
   useEffect(() => {
     Promise.all([api.listIpos(), api.listApplications()])
       .then(([ipoList, appList]) => {
+        // Only IPOs you're actually involved in — with ~200 auto-loaded IPOs
+        // on the board, listing every open/closed one here would be noise.
+        const withApps = new Set(appList.map((a) => a.ipoId));
         setIpos(
           ipoList
-            .filter((i) => i.status === 'OPEN' || i.status === 'CLOSED')
+            .filter((i) => withApps.has(i.id))
             .sort((a, b) =>
               a.status === b.status
                 ? a.name.localeCompare(b.name)

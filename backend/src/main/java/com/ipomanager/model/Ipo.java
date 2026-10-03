@@ -63,6 +63,39 @@ public class Ipo {
     private String registrarRef;
 
     /**
+     * Where this row came from: MANUAL (typed by the user) or AUTO (synced
+     * from Chittorgarh's IPO feed). The sync never touches MANUAL rows.
+     * Null on rows created before the sync existed means MANUAL.
+     */
+    private String source;
+
+    /**
+     * Hidden from the board (removed by the user, or auto-hidden after the
+     * allotment date passes). The row stays in the DB and remains searchable.
+     * Null on older rows means visible.
+     */
+    private Boolean boardHidden;
+
+    /** Basis-of-allotment date when known; the board auto-hides past this. */
+    private LocalDate allotmentDate;
+
+    /** Price band low/high as published (e.g. 208 / 220). */
+    @Column(precision = 19, scale = 2)
+    private BigDecimal priceLow;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal priceHigh;
+
+    /** Issue size as published, e.g. "178 cr". Display text, not computed. */
+    private String issueSize;
+
+    /** Book-running lead manager as published. */
+    private String leadManager;
+
+    /** Where it lists, e.g. "BSE, NSE". */
+    private String listingExchange;
+
+    /**
      * The login account this row belongs to. Every query is scoped to the
      * current user's id, so users only ever see their own data.
      */

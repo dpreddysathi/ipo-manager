@@ -16,6 +16,21 @@ export interface Ipo {
   registrar?: string | null;
   /** The IPO's key on the registrar's site (KFintech clientId / MUFG company_id). */
   registrarRef?: string | null;
+  /** MANUAL (typed by the user) or AUTO (synced from Chittorgarh). */
+  source?: 'MANUAL' | 'AUTO' | null;
+  /** Hidden from the board (user-removed or auto-hidden past allotment). Still in DB + searchable. */
+  boardHidden?: boolean | null;
+  /** Basis-of-allotment date when known. */
+  allotmentDate?: string | null;
+  /** Published price band low/high. */
+  priceLow?: number | null;
+  priceHigh?: number | null;
+  /** Issue size as published, e.g. "₹178 cr". */
+  issueSize?: string | null;
+  /** Book-running lead manager. */
+  leadManager?: string | null;
+  /** Where it lists, e.g. "BSE, NSE". */
+  listingExchange?: string | null;
 }
 
 export interface Person {

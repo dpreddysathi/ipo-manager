@@ -38,8 +38,7 @@ import java.util.regex.Pattern;
  * never a guessed allotment.
  *
  * <p>Privacy: the PAN is decrypted from the KYC store only in memory,
- * sent to the registrar over HTTPS, and never written to logs
- * (masked at most).
+ * sent to the registrar over HTTPS, and never written to logs.
  */
 @Service
 @RequiredArgsConstructor
@@ -173,8 +172,8 @@ public class AllotmentCheckService {
                         "This registrar needs a captcha — check on their site.");
             };
         } catch (Exception e) {
-            log.warn("Allotment check failed (registrar={}, pan={}): {}",
-                    registrar, mask(normalized), e.getMessage());
+            log.warn("Allotment check failed (registrar={}): {}",
+                    registrar, e.getMessage());
             return AllotmentCheckResult.of(applicationId,
                     AllotmentCheckResult.Outcome.ERROR,
                     "Registrar didn't answer properly — try again later.");
@@ -454,11 +453,6 @@ public class AllotmentCheckService {
         } catch (NumberFormatException e) {
             return -1;
         }
-    }
-
-    private String mask(String pan) {
-        if (pan == null || pan.length() < 4) return "****";
-        return pan.substring(0, 2) + "****" + pan.substring(pan.length() - 2);
     }
 
     private record CachedList(List<RegistrarIpoDto> ipos, long fetchedAt) {

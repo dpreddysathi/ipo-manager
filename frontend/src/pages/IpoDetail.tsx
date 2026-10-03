@@ -173,6 +173,16 @@ export function IpoDetail() {
     }
   };
 
+  const toggleBoardHidden = async () => {
+    if (!ipo) return;
+    try {
+      const updated = await api.setIpoBoardHidden(ipo.id, !ipo.boardHidden);
+      setIpo(updated);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed.');
+    }
+  };
+
   if (loading) return <div className="loading">Loading IPO…</div>;
   if (error && !ipo) return <div className="error-box">{error}</div>;
   if (!ipo) return <div className="empty">IPO not found.</div>;
@@ -224,11 +234,40 @@ export function IpoDetail() {
             <span className={pillClassForIpoStatus(ipo.status)}>
               {ipo.status}
             </span>{' '}
+            {ipo.source === 'AUTO' && (
+              <span className="pill pill-auto">AUTO</span>
+            )}{' '}
             {ipo.openDate && <>· opens {formatDate(ipo.openDate)}</>}
             {ipo.closeDate && <> · closes {formatDate(ipo.closeDate)}</>}
+            {ipo.allotmentDate && (
+              <> · allotment {formatDate(ipo.allotmentDate)}</>
+            )}
+            {ipo.listingDate && <> · lists {formatDate(ipo.listingDate)}</>}
           </p>
+          {(ipo.priceLow != null ||
+            ipo.priceHigh != null ||
+            ipo.lotSize != null ||
+            ipo.issueSize ||
+            ipo.leadManager ||
+            ipo.listingExchange) && (
+            <p className="sub" style={{ marginTop: 4 }}>
+              {ipo.priceLow != null && ipo.priceHigh != null && (
+                <>Band ₹{formatINR(ipo.priceLow)}–₹{formatINR(ipo.priceHigh)} · </>
+              )}
+              {ipo.lotSize != null && <>{ipo.lotSize} shares/lot · </>}
+              {ipo.issueSize && <>{ipo.issueSize} · </>}
+              {ipo.listingExchange && <>{ipo.listingExchange} · </>}
+              {ipo.leadManager && <>{ipo.leadManager}</>}
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={toggleBoardHidden}
+          >
+            {ipo.boardHidden ? 'Restore to board' : 'Remove from board'}
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setShowEdit(true)}

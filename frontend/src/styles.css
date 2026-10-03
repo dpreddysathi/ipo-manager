@@ -397,6 +397,23 @@ a.stat-card:hover::after {
   color: #475569;
   border-color: #e2e8f0;
 }
+/* Badge for auto-synced IPOs (Chittorgarh feed). */
+.pill-auto {
+  background: var(--blue-bg);
+  color: var(--blue);
+  border: 1px solid rgba(29, 78, 216, 0.16);
+}
+/* Neutral notice box (e.g. sync result), mirroring .error-box. */
+.info-box {
+  background: var(--blue-bg);
+  color: var(--blue);
+  border: 1px solid rgba(29, 78, 216, 0.18);
+  border-radius: 12px;
+  padding: 14px 17px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  margin-bottom: 18px;
+}
 
 /* ---------- Tables ---------- */
 .table-wrap {
