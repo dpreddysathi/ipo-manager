@@ -1,0 +1,35 @@
+# IPO Manager — production compose for a cloud VM (e.g. Oracle Cloud Always Free).
+# app: Spring Boot backend (H2 file DB persisted in the ipo-data volume).
+# caddy: reverse proxy with automatic HTTPS (Let's Encrypt) for $DOMAIN.
+#
+# Usage:
+#   cp .env.example .env   # then fill in DOMAIN + secrets
+#   docker compose up -d --build
+
+services:
+  app:
+    build: ./backend
+    restart: always
+    env_file: .env
+    expose:
+      - "8080"
+    volumes:
+      - ipo-data:/app/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  ipo-data:
+  caddy-data:
+  caddy-config:

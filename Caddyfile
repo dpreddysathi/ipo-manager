@@ -1,0 +1,5 @@
+# Reverse-proxy the Spring Boot backend with automatic HTTPS.
+# $DOMAIN comes from the .env file (e.g. dp-ipo.duckdns.org).
+{$DOMAIN} {
+	reverse_proxy app:8080
+}
