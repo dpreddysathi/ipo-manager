@@ -26,7 +26,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
         env:
-          VITE_API_URL: https://homeserver.taildf8f05.ts.net
+          VITE_API_URL: https://ipo-manager-backend.onrender.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
