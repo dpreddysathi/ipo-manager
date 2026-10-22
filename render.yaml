@@ -1,0 +1,23 @@
+# Render Blueprint — IPO Manager backend (free tier).
+# App host: Render (Docker, Singapore, free plan — sleeps when idle, kept awake by an uptime pinger).
+# Database: Neon Postgres (free) — connection string supplied at deploy time, never committed.
+services:
+  - type: web
+    name: ipo-manager-backend
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      # From Neon: Dashboard -> Connect -> driver "JDBC" -> copy the jdbc:postgresql:// string.
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      # Base64 of 32 random bytes (openssl rand -base64 32). Keep a copy in your password manager.
+      - key: KYC_ENCRYPTION_KEY
+        sync: false
+      - key: AUTH_JWT_SECRET
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://dpreddysathi.github.io
