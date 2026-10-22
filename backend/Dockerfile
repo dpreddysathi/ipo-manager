@@ -22,4 +22,7 @@ VOLUME ["/app/data"]
 #   docker build -t ipo-manager-backend ./backend
 #   docker run -d -p 8080:8080 -v ipo-data:/app/data \
 #     -e KYC_ENCRYPTION_KEY='<your-key>' ipo-manager-backend
+# Cap heap so the app fits small instances (Render free = 512 MB total).
+ENV JAVA_TOOL_OPTIONS="-Xmx350m"
+
 ENTRYPOINT ["java", "-jar", "app.jar"]
